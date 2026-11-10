@@ -1,0 +1,69 @@
+services:
+  app:
+    image: staging-lms-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: staging-lms
+    restart: unless-stopped
+    working_dir: /app
+    env_file:
+      - .env.staging
+    volumes:
+      - ./:/app
+    networks:
+      - staging_net
+      - core_net
+    deploy:
+      resources:
+        limits:
+          memory: 224M
+
+  ws:
+    container_name: staging-lms-ws
+    restart: unless-stopped
+    build:
+      context: ./ws-hub
+      dockerfile: Dockerfile
+    environment:
+      - PORT=8081
+      - INTERNAL_API_URL=http://staging-lms:80
+      - LIVE_VALIDATE_PATH=/internal/live-sessions/validate
+      - ALLOWED_ORIGINS=https://lms.backupmate.biz.id
+    env_file:
+      - .env.staging
+    networks:
+      - staging_net
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  queue:
+    container_name: staging-lms-queue
+    restart: unless-stopped
+    working_dir: /app
+    image: staging-lms-app
+    env_file:
+      - .env.staging
+    volumes:
+      - ./:/app
+    command: ["php", "artisan", "queue:work", "--sleep=3", "--tries=2", "--max-time=3600"]
+    healthcheck:
+      disable: true
+    depends_on:
+      - app
+      - ws
+    networks:
+      - staging_net
+      - core_net
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+networks:
+  staging_net:
+    external: true
+  core_net:
+    external: true

@@ -1,0 +1,9 @@
+node_modules/
+vendor/
+.env
+.env.staging
+public/build/
+public/storage
+storage/*.key
+*.sqlite
+ws-hub/ws-hub
