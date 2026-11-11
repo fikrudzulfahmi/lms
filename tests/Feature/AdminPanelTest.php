@@ -277,4 +277,105 @@ class AdminPanelTest extends TestCase
 
         $this->assertSame('XII', $objective->fresh()->grade_level);
     }
+
+    public function test_ploting_page_renders_matrix_and_summary(): void
+    {
+        $year = $this->activeYear();
+        $department = Department::factory()->create(['code' => 'TSM', 'name' => 'Teknik Sepeda Motor']);
+        $teacher = User::factory()->create(['role' => User::ROLE_TEACHER, 'is_active' => true]);
+        $subject = Subject::factory()->create(['department_id' => $department->id, 'code' => 'PLPK']);
+        $classroom = Classroom::factory()->create([
+            'department_id' => $department->id,
+            'grade_level' => 'XI',
+            'name' => 'XI TSM 1',
+        ]);
+
+        TeachingAssignment::create([
+            'academic_year_id' => $year->id,
+            'teacher_id' => $teacher->id,
+            'subject_id' => $subject->id,
+            'classroom_id' => $classroom->id,
+        ]);
+
+        $this->actingAs($this->admin())
+            ->get('/admin/ploting')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Admin/Ploting')
+                ->where('year.id', $year->id)
+                ->has('teachers', 1)
+                ->has('subjects', 1)
+                ->has('classrooms', 1)
+                ->where('matrix.'.$teacher->id.'.'.$subject->id.'.0.classroom_id', $classroom->id)
+                ->where('teacher_load.'.$teacher->id, 1)
+                ->where('summary.assignments', 1)
+                ->where('summary.teachers', 1)
+                ->where('summary.subjects', 1));
+    }
+
+    public function test_ploting_page_without_active_year_returns_empty_payload(): void
+    {
+        $this->actingAs($this->admin())
+            ->get('/admin/ploting')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Admin/Ploting')
+                ->where('year', null)
+                ->has('teachers', 0)
+                ->has('classrooms', 0));
+    }
+
+    public function test_ploting_department_filter_limits_subjects_and_classrooms(): void
+    {
+        $this->activeYear();
+        $tsm = Department::factory()->create(['code' => 'TSM', 'name' => 'Teknik Sepeda Motor']);
+        $tkj = Department::factory()->create(['code' => 'TKJ', 'name' => 'Teknik Komputer']);
+        Subject::factory()->create(['department_id' => $tsm->id, 'code' => 'PLPK']);
+        Subject::factory()->create(['department_id' => $tkj->id, 'code' => 'RPL']);
+        Classroom::factory()->create(['department_id' => $tsm->id, 'name' => 'XI TSM 1']);
+        Classroom::factory()->create(['department_id' => $tkj->id, 'name' => 'XI TKJ 1']);
+
+        $this->actingAs($this->admin())
+            ->get('/admin/ploting?department_id='.$tsm->id)
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('filters.department_id', $tsm->id)
+                ->has('subjects', 1)
+                ->where('subjects.0.code', 'PLPK')
+                ->has('classrooms', 1)
+                ->where('classrooms.0.name', 'XI TSM 1'));
+    }
+
+    public function test_ploting_store_rejects_unknown_classroom_and_non_teacher(): void
+    {
+        $year = $this->activeYear();
+        $student = User::factory()->create(['role' => User::ROLE_STUDENT]);
+        $subject = Subject::factory()->create();
+
+        $this->actingAs($this->admin())->post('/admin/ploting', [
+            'academic_year_id' => $year->id,
+            'teacher_id' => $student->id,
+            'subject_id' => $subject->id,
+            'classroom_ids' => [999999],
+        ])->assertSessionHasErrors(['teacher_id', 'classroom_ids.0']);
+
+        $this->assertSame(0, TeachingAssignment::count());
+    }
+
+    public function test_teacher_cannot_change_ploting(): void
+    {
+        $year = $this->activeYear();
+        $teacher = User::factory()->create(['role' => User::ROLE_TEACHER]);
+        $subject = Subject::factory()->create();
+        $classroom = Classroom::factory()->create();
+
+        $this->actingAs($teacher)->post('/admin/ploting', [
+            'academic_year_id' => $year->id,
+            'teacher_id' => $teacher->id,
+            'subject_id' => $subject->id,
+            'classroom_ids' => [$classroom->id],
+        ])->assertForbidden();
+
+        $this->assertSame(0, TeachingAssignment::count());
+    }
 }

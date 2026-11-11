@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { router } from '@inertiajs/react';
+import { router, usePage } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
 import {
     Badge,
@@ -31,6 +31,9 @@ export default function Ploting({
     });
     const [saving, setSaving] = useState(false);
     const [onlyAssigned, setOnlyAssigned] = useState(false);
+    const [matrixQuery, setMatrixQuery] = useState('');
+
+    const { errors = {} } = usePage().props;
 
     const classroomMap = useMemo(() => {
         const map = {};
@@ -46,6 +49,16 @@ export default function Ploting({
             teachers.some((t) => (matrix[t.id]?.[s.id] ?? []).length > 0),
         );
     }, [onlyAssigned, matrix, subjects, teachers]);
+
+    const visibleTeachers = useMemo(() => {
+        const term = matrixQuery.trim().toLowerCase();
+        if (!term) return teachers;
+        return teachers.filter(
+            (t) =>
+                t.name.toLowerCase().includes(term) ||
+                String(t.username ?? '').toLowerCase().includes(term),
+        );
+    }, [matrixQuery, teachers]);
 
     const activeCount = useMemo(
         () =>
@@ -162,7 +175,17 @@ export default function Ploting({
                         ))}
                     </select>
                 </div>
-                <label className="flex cursor-pointer items-center gap-2 pb-2 text-sm text-zinc-600">
+                <div className="min-w-[12rem]">
+                    <div className="mb-1.5 text-xs font-medium text-zinc-600">Cari Guru</div>
+                    <input
+                        type="search"
+                        className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                        placeholder="Nama atau NIP"
+                        value={matrixQuery}
+                        onChange={(e) => setMatrixQuery(e.target.value)}
+                    />
+                </div>
+                <label className="flex cursor-pointer items-center gap-2 pb-2.5 text-sm text-zinc-600">
                     <input
                         type="checkbox"
                         className="h-4 w-4 accent-emerald-600"
@@ -178,8 +201,8 @@ export default function Ploting({
                     title="Form Ploting"
                     subtitle="Pilih guru + mapel, centang kelas (bisa banyak sekaligus), lalu simpan."
                 />
-                <div className="grid gap-4 md:grid-cols-3">
-                    <Field label="Guru">
+                <div className="grid items-start gap-4 md:grid-cols-3">
+                    <Field label="Guru" error={errors.teacher_id}>
                         <select
                             className={selectClass}
                             value={form.teacher_id}
@@ -205,7 +228,7 @@ export default function Ploting({
                         )}
                     </Field>
 
-                    <Field label="Mata Pelajaran">
+                    <Field label="Mata Pelajaran" error={errors.subject_id}>
                         <select
                             className={selectClass}
                             value={form.subject_id}
@@ -260,6 +283,11 @@ export default function Ploting({
                                 <span className="text-sm text-zinc-400">Belum ada kelas.</span>
                             )}
                         </div>
+                        {(errors.classroom_ids || errors['classroom_ids.0']) && (
+                            <p className="mt-1 text-xs font-medium text-red-600">
+                                {errors.classroom_ids ?? errors['classroom_ids.0']}
+                            </p>
+                        )}
                     </div>
                 </div>
 
@@ -292,7 +320,7 @@ export default function Ploting({
             <Card className="mt-4">
                 <CardHeader
                     title="Matriks Guru × Mapel"
-                    subtitle={`${teachers.length} guru aktif · ${visibleSubjects.length} mapel ditampilkan.`}
+                    subtitle={`${visibleTeachers.length} dari ${teachers.length} guru aktif · ${visibleSubjects.length} mapel ditampilkan.`}
                 />
                 {teachers.length === 0 ? (
                     <EmptyState
@@ -301,18 +329,23 @@ export default function Ploting({
                     />
                 ) : visibleSubjects.length === 0 ? (
                     <EmptyState title="Belum ada mata pelajaran" />
+                ) : visibleTeachers.length === 0 ? (
+                    <EmptyState
+                        title="Tidak ada guru yang cocok"
+                        description="Ubah kata kunci pencarian guru di toolbar."
+                    />
                 ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full border-collapse text-xs">
+                    <div className="overflow-x-auto rounded-xl border border-zinc-100">
+                        <table className="w-full min-w-[700px] border-collapse text-xs">
                             <thead>
-                                <tr>
-                                    <th className="sticky left-0 z-10 min-w-[12rem] border-b border-zinc-200 bg-white px-2 py-2 text-left text-xs font-medium text-zinc-500">
+                                <tr className="border-b border-zinc-200 bg-zinc-50/70">
+                                    <th className="sticky left-0 z-10 min-w-[12rem] border-b border-zinc-200 bg-zinc-50 px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-zinc-600">
                                         Guru
                                     </th>
                                     {visibleSubjects.map((s) => (
                                         <th
                                             key={s.id}
-                                            className="min-w-[7rem] border-b border-zinc-200 px-2 py-2 text-left align-bottom text-xs font-medium text-zinc-500"
+                                            className="min-w-[7rem] border-b border-zinc-200 px-3 py-2.5 text-left align-bottom text-[11px] font-semibold uppercase tracking-wide text-zinc-600"
                                         >
                                             <span className="block font-mono text-[10px] text-zinc-400">
                                                 {s.code}
@@ -323,9 +356,9 @@ export default function Ploting({
                                 </tr>
                             </thead>
                             <tbody>
-                                {teachers.map((t) => (
+                                {visibleTeachers.map((t) => (
                                     <tr key={t.id} className="border-b border-zinc-100 last:border-0">
-                                        <td className="sticky left-0 z-10 border-r border-zinc-100 bg-white px-2 py-2">
+                                        <td className="sticky left-0 z-10 border-r border-zinc-100 bg-white px-3 py-3">
                                             <div className="truncate font-medium text-zinc-900">
                                                 {t.name}
                                             </div>
