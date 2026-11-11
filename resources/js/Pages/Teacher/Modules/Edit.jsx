@@ -99,13 +99,43 @@ function defaultContent(type) {
                 question: 'Tulis studi kasus untuk dianalisis siswa...',
                 min_words: 30,
             };
+        case 'soal_hotspot':
+            return {
+                question: 'Labeli bagian-bagian pada gambar berikut.',
+                image_url: 'https://placehold.co/1280x720/png',
+                spots: [
+                    { x: 25, y: 40, label: 'Bagian A' },
+                    { x: 70, y: 60, label: 'Bagian B' },
+                ],
+                explanation: '',
+            };
+        case 'materi_video_interaktif':
+            return {
+                title: '',
+                url: '',
+                checkpoints: [
+                    {
+                        at: 30,
+                        question: 'Tulis pertanyaan checkpoint...',
+                        options: [{ text: 'Opsi A' }, { text: 'Opsi B' }],
+                        correct_index: 0,
+                    },
+                ],
+            };
+        case 'polling':
+            return {
+                question: 'Tulis pertanyaan polling untuk kelas...',
+                options: ['Opsi A', 'Opsi B'],
+            };
         default:
             return {};
     }
 }
 
 function defaultPoints(type) {
-    return type.startsWith('soal_') ? 10 : 0;
+    // Video interaktif berkelompok Materi tetapi dinilai per checkpoint,
+    // jadi ikut mendapat poin bawaan seperti blok soal.
+    return type.startsWith('soal_') || type === 'materi_video_interaktif' ? 10 : 0;
 }
 
 async function apiRequest(url, method, body) {
@@ -149,6 +179,7 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
     const [previewMode, setPreviewMode] = useState('editor_guru');
     const [title, setTitle] = useState(module.title);
     const [status, setStatus] = useState(module.status);
+    const [allowPractice, setAllowPractice] = useState(module.allow_practice ?? true);
     const [adding, setAdding] = useState(null);
     const [draggingId, setDraggingId] = useState(null);
     const [aiOpen, setAiOpen] = useState(false);
@@ -566,6 +597,21 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
         }
     }
 
+    async function toggleAllowPractice() {
+        const previous = allowPractice;
+        const next = !allowPractice;
+        setAllowPractice(next);
+        setSaveState('saving');
+
+        try {
+            const payload = await apiRequest(urls.update, 'PATCH', { allow_practice: next });
+            markSaved(payload.saved_at);
+        } catch (error) {
+            setAllowPractice(previous);
+            markError(error);
+        }
+    }
+
     const stateBadge = {
         saved: { dot: 'bg-emerald-500', text: 'Tersimpan' },
         saving: { dot: 'bg-amber-400', text: 'Menyimpan...' },
@@ -680,6 +726,32 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
                         }`}
                     >
                         {status === 'published' ? 'Terbit' : 'Draft'}
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={toggleAllowPractice}
+                        role="switch"
+                        aria-checked={allowPractice}
+                        title="Izinkan siswa membuka modul ini di halaman Belajar Mandiri"
+                        className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium ${
+                            allowPractice
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50'
+                        }`}
+                    >
+                        <span
+                            className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${
+                                allowPractice ? 'bg-emerald-500' : 'bg-zinc-300'
+                            }`}
+                        >
+                            <span
+                                className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${
+                                    allowPractice ? 'left-3.5' : 'left-0.5'
+                                }`}
+                            />
+                        </span>
+                        Belajar Mandiri {allowPractice ? 'Aktif' : 'Nonaktif'}
                     </button>
 
                     <span className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 font-mono text-xs text-zinc-500">

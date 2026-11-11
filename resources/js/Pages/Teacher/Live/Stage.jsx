@@ -125,8 +125,29 @@ export default function Stage({
     });
 
     const blockAnswers = Object.values(answersByBlock[activeBlock?.id] ?? {});
-    const isQuestion = activeBlock?.block_type?.startsWith('soal_');
+    const isQuestion =
+        activeBlock?.block_type?.startsWith('soal_') || activeBlock?.block_type === 'polling';
     const connected = socketStatus === 'open';
+
+    // Agregat polling: hitung suara per opsi dari respons yang sudah diterima.
+    const pollResults = useMemo(() => {
+        if (activeBlock?.block_type !== 'polling') return null;
+
+        const options = Array.isArray(activeBlock.content?.options) ? activeBlock.content.options : [];
+        const counts = options.map(() => 0);
+        let total = 0;
+
+        for (const item of blockAnswers) {
+            const index = item?.answer?.option_index;
+            if (Number.isInteger(index) && index >= 0 && index < counts.length) {
+                counts[index] += 1;
+                total += 1;
+            }
+        }
+
+        return { counts, total };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeBlock?.id, activeBlock?.block_type, JSON.stringify(answersByBlock[activeBlock?.id] ?? {})]);
 
     async function goTo(index) {
         const target = ordered[index];
@@ -283,6 +304,7 @@ export default function Stage({
                                     index={activeIndex}
                                     total={ordered.length}
                                     showAnswer={reveal}
+                                    pollResults={pollResults}
                                 />
                             ) : (
                                 <div className="rounded-2xl border border-dashed border-zinc-700 px-6 py-24 text-center text-zinc-500">

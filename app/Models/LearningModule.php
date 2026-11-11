@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'kktp_score',
     'max_attempts',
     'status',
+    'allow_practice',
     'settings',
     'ai_status',
     'ai_error',
@@ -73,6 +74,7 @@ class LearningModule extends Model
         return [
             'kktp_score' => 'integer',
             'max_attempts' => 'integer',
+            'allow_practice' => 'boolean',
             'settings' => 'array',
             'ai_generated_at' => 'datetime',
         ];

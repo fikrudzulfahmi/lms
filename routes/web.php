@@ -6,6 +6,7 @@ use App\Http\Controllers\Internal\LiveSessionValidationController;
 use App\Http\Controllers\Student\GradeController;
 use App\Http\Controllers\Student\HomeController as StudentHomeController;
 use App\Http\Controllers\Student\LiveController;
+use App\Http\Controllers\Student\PracticeController;
 use App\Http\Controllers\SubjectController;
 use App\Http\Controllers\Teacher\AiCurriculumController;
 use App\Http\Controllers\Teacher\GradebookController;
@@ -133,6 +134,9 @@ Route::middleware('auth')->group(function () {
         Route::get('/', [StudentHomeController::class, 'index'])->name('home');
         Route::get('/grades', [GradeController::class, 'index'])->name('grades.index');
         Route::get('/live', [LiveController::class, 'joinForm'])->name('live');
+        Route::get('/modules/{module}/practice', [PracticeController::class, 'show'])->name('practice.show');
+        Route::post('/modules/{module}/practice/progress', [PracticeController::class, 'markProgress'])->name('practice.progress');
+        Route::post('/modules/{module}/practice/answers', [PracticeController::class, 'answer'])->name('practice.answer');
     });
 
     Route::prefix('live')->name('student.live.')->middleware('role:student')->group(function () {

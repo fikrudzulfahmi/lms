@@ -138,6 +138,7 @@ class ModuleController
                 'id' => $module->id,
                 'title' => $module->title,
                 'status' => $module->status,
+                'allow_practice' => (bool) $module->allow_practice,
                 'assessment_type' => $module->assessment_type,
                 'kktp_score' => $module->kktp_score,
                 'max_attempts' => $module->max_attempts,
@@ -240,6 +241,7 @@ class ModuleController
             ['value' => 'section_heading', 'label' => 'Judul Bagian', 'group' => 'Materi'],
             ['value' => 'materi_richtext', 'label' => 'Teks Kaya', 'group' => 'Materi'],
             ['value' => 'materi_video', 'label' => 'Video', 'group' => 'Materi'],
+            ['value' => 'materi_video_interaktif', 'label' => 'Video Interaktif', 'group' => 'Materi'],
             ['value' => 'materi_file', 'label' => 'Lampiran Berkas', 'group' => 'Materi'],
             ['value' => 'materi_embed', 'label' => 'Tautan / Embed', 'group' => 'Materi'],
             ['value' => 'materi_teks', 'label' => 'Teks Materi', 'group' => 'Materi'],
@@ -251,7 +253,9 @@ class ModuleController
             ['value' => 'soal_fillblank', 'label' => 'Isian Singkat', 'group' => 'Soal'],
             ['value' => 'soal_sequencing', 'label' => 'Urutan Prosedur', 'group' => 'Soal'],
             ['value' => 'soal_matching', 'label' => 'Mencocokkan', 'group' => 'Soal'],
+            ['value' => 'soal_hotspot', 'label' => 'Labeli Gambar / Hotspot', 'group' => 'Soal'],
             ['value' => 'soal_essay_ai', 'label' => 'Studi Kasus Esai', 'group' => 'Soal'],
+            ['value' => 'polling', 'label' => 'Polling Kilat', 'group' => 'Soal'],
         ];
     }
 }

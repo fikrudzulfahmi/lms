@@ -46,6 +46,12 @@ class ModuleBlock extends Model
 
     public const BLOCK_SOAL_ESSAY_AI = 'soal_essay_ai';
 
+    public const BLOCK_SOAL_HOTSPOT = 'soal_hotspot';
+
+    public const BLOCK_MATERI_VIDEO_INTERAKTIF = 'materi_video_interaktif';
+
+    public const BLOCK_POLLING = 'polling';
+
     public const BLOCK_TYPES = [
         self::BLOCK_SECTION_HEADING,
         self::BLOCK_MATERI_RICHTEXT,
@@ -62,6 +68,9 @@ class ModuleBlock extends Model
         self::BLOCK_SOAL_SEQUENCING,
         self::BLOCK_SOAL_MATCHING,
         self::BLOCK_SOAL_ESSAY_AI,
+        self::BLOCK_SOAL_HOTSPOT,
+        self::BLOCK_MATERI_VIDEO_INTERAKTIF,
+        self::BLOCK_POLLING,
     ];
 
     /**

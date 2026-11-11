@@ -7,6 +7,8 @@ use App\Models\AcademicYear;
 use App\Models\ClassroomStudent;
 use App\Models\LearningModule;
 use App\Models\LiveSession;
+use App\Models\ModuleBlock;
+use App\Models\ModuleProgress;
 use App\Models\TeachingAssignment;
 use App\Services\GradeCalculationService;
 use Illuminate\Http\Request;
@@ -73,12 +75,40 @@ class HomeController extends Controller
             'subject_code' => $module->teachingAssignment?->subject?->code,
             'teacher' => $module->teachingAssignment?->teacher?->name,
             'assessment_type' => $module->assessment_type,
+            'allow_practice' => (bool) $module->allow_practice,
             'kktp' => (int) ($module->kktp_score ?? 0),
             'blocks_count' => (int) ($module->blocks_count ?? 0),
             'score' => $scoreByModule[$module->id]['score'] ?? null,
             'is_passed' => $scoreByModule[$module->id]['is_passed'] ?? null,
             'has_override' => $scoreByModule[$module->id]['has_override'] ?? false,
         ])->values();
+
+        // Progres belajar mandiri per modul (untuk chip latihan di kartu).
+        $practiceProgress = [];
+        if ($modules->isNotEmpty()) {
+            $eligibleByModule = ModuleBlock::query()
+                ->whereIn('module_id', $modules->pluck('id')->all())
+                ->where('block_type', '!=', ModuleBlock::BLOCK_SECTION_HEADING)
+                ->get(['id', 'module_id'])
+                ->groupBy('module_id')
+                ->map(fn ($blocks) => $blocks->pluck('id')->map(fn ($id) => (string) $id)->all());
+
+            $progressRows = ModuleProgress::query()
+                ->where('student_id', $student->id)
+                ->whereIn('module_id', $modules->pluck('id')->all())
+                ->get();
+
+            foreach ($progressRows as $row) {
+                $eligible = $eligibleByModule[$row->module_id] ?? [];
+                $completed = array_intersect($eligible, array_map('strval', $row->completed_blocks ?? []));
+                $total = count($eligible);
+
+                $practiceProgress[$row->module_id] = [
+                    'percent' => $total > 0 ? (int) round(count($completed) / $total * 100) : 0,
+                    'completed_at' => $row->completed_at?->toIso8601String(),
+                ];
+            }
+        }
 
         $activeSessions = LiveSession::query()
             ->whereIn('module_id', $modules->pluck('id')->all())
@@ -112,6 +142,7 @@ class HomeController extends Controller
                 'modules_belum' => $moduleCards->filter(fn ($module) => $module['score'] !== null && ! $module['is_passed'])->count(),
             ]),
             'modules' => $moduleCards,
+            'practice_progress' => $practiceProgress,
             'active_sessions' => $activeSessions,
         ]);
     }

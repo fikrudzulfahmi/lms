@@ -11,6 +11,9 @@ const NEW_TYPES = [
     'materi_embed',
     'soal_truefalse',
     'soal_fillblank',
+    'soal_hotspot',
+    'materi_video_interaktif',
+    'polling',
 ];
 
 function truncateText(value, max = 90) {
@@ -41,6 +44,11 @@ function contentSummary(type, content) {
             return truncateText(content.url);
         case 'soal_truefalse':
         case 'soal_fillblank':
+        case 'soal_hotspot':
+            return truncateText(content.question);
+        case 'materi_video_interaktif':
+            return truncateText(content.url);
+        case 'polling':
             return truncateText(content.question);
         default:
             return '';
@@ -204,6 +212,60 @@ export default function BlockEditor({
         setContent({ body: value.slice(0, start) + listed + value.slice(end) });
     }
 
+    async function handleAssetUploadField(event, field) {
+        const file = event.target.files?.[0];
+        event.target.value = '';
+        if (!file) return;
+
+        setUploading(true);
+        setUploadError(null);
+
+        try {
+            const payload = await uploadAsset(file);
+            setContent({ [field]: payload.url });
+        } catch (error) {
+            setUploadError(error.message || 'Gagal mengunggah berkas.');
+        } finally {
+            setUploading(false);
+        }
+    }
+
+    const hotspotBoxRef = useRef(null);
+    const [hotspotDragIndex, setHotspotDragIndex] = useState(null);
+
+    function hotspotPointFromEvent(event) {
+        const box = hotspotBoxRef.current;
+        if (!box) return null;
+
+        const rect = box.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return null;
+
+        const clamp = (value) => Math.min(100, Math.max(0, value));
+
+        return {
+            x: Math.round(clamp(((event.clientX - rect.left) / rect.width) * 100) * 10) / 10,
+            y: Math.round(clamp(((event.clientY - rect.top) / rect.height) * 100) * 10) / 10,
+        };
+    }
+
+    function handleHotspotBoxClick(event) {
+        const point = hotspotPointFromEvent(event);
+        if (!point) return;
+
+        const spots = content.spots ?? [];
+        if (spots.length >= 20) return;
+
+        setContent({ spots: [...spots, { ...point, label: `Titik ${spots.length + 1}` }] });
+    }
+
+    const setCheckpointOption = (checkpointIndex, optionIndex, patch) => {
+        const checkpoints = [...(content.checkpoints ?? [])];
+        const options = [...(checkpoints[checkpointIndex]?.options ?? [])];
+        options[optionIndex] = { ...options[optionIndex], ...patch };
+        checkpoints[checkpointIndex] = { ...checkpoints[checkpointIndex], options };
+        setContent({ checkpoints });
+    };
+
     const setContent = (patch) => onChange({ content: { ...content, ...patch } });
     const setArrayItem = (key, itemIndex, patch) => {
         const list = Array.isArray(content[key]) ? [...content[key]] : [];
@@ -228,7 +290,7 @@ export default function BlockEditor({
                 <span className="text-xs font-semibold text-zinc-800">{BLOCK_LABELS[type] ?? type}</span>
 
                 <div className="ml-auto flex items-center gap-2">
-                    {type.startsWith('soal_') && (
+                    {(type.startsWith('soal_') || type === 'materi_video_interaktif') && (
                         <label className="flex items-center gap-1 text-[11px] text-zinc-500">
                             Poin
                             <input
@@ -1055,6 +1117,362 @@ export default function BlockEditor({
                                 placeholder="Wajib menyebutkan sensor ECT/EOT dan pengukuran resistansi..."
                             />
                         </Field>
+                    </>
+                )}
+
+                {type === 'soal_hotspot' && (
+                    <>
+                        <Field label="Pertanyaan">
+                            <textarea
+                                rows={2}
+                                value={content.question ?? ''}
+                                onChange={(event) => setContent({ question: event.target.value })}
+                                className={inputClass}
+                                placeholder="Contoh: Pasangkan label dengan bagian mesin yang tepat."
+                            />
+                        </Field>
+                        <Field label="URL gambar" hint="Tempel URL gambar, atau unggah berkas gambar.">
+                            <input
+                                value={content.image_url ?? ''}
+                                onChange={(event) => setContent({ image_url: event.target.value })}
+                                className={inputClass}
+                                placeholder="https://... atau /storage/modules/..."
+                            />
+                        </Field>
+                        <div>
+                            <label
+                                className={`inline-block rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 ${
+                                    uploading || !assetUploadUrl
+                                        ? 'cursor-not-allowed opacity-50'
+                                        : 'cursor-pointer'
+                                }`}
+                            >
+                                {uploading ? 'Mengunggah...' : 'Unggah gambar'}
+                                <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    disabled={uploading || !assetUploadUrl}
+                                    onChange={(event) => handleAssetUploadField(event, 'image_url')}
+                                />
+                            </label>
+                        </div>
+                        <Field
+                            label="Titik label"
+                            hint="Klik pada gambar untuk menambah titik. Seret titik bernomor untuk memindahkannya. Label harus berbeda satu sama lain."
+                        >
+                            {content.image_url ? (
+                                <div
+                                    ref={hotspotBoxRef}
+                                    onClick={handleHotspotBoxClick}
+                                    className="relative cursor-crosshair select-none overflow-hidden rounded-lg border border-zinc-200"
+                                >
+                                    <img
+                                        src={content.image_url}
+                                        alt="Gambar hotspot"
+                                        draggable={false}
+                                        className="block w-full"
+                                    />
+                                    {(content.spots ?? []).map((spot, spotIndex) => (
+                                        <button
+                                            key={spotIndex}
+                                            type="button"
+                                            title={spot.label || `Titik ${spotIndex + 1}`}
+                                            onClick={(event) => event.stopPropagation()}
+                                            onPointerDown={(event) => {
+                                                event.stopPropagation();
+                                                event.currentTarget.setPointerCapture(event.pointerId);
+                                                setHotspotDragIndex(spotIndex);
+                                            }}
+                                            onPointerMove={(event) => {
+                                                if (hotspotDragIndex !== spotIndex) return;
+                                                const point = hotspotPointFromEvent(event);
+                                                if (point) setArrayItem('spots', spotIndex, point);
+                                            }}
+                                            onPointerUp={() => setHotspotDragIndex(null)}
+                                            onPointerCancel={() => setHotspotDragIndex(null)}
+                                            className={`absolute flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 cursor-grab items-center justify-center rounded-full border-2 border-white font-mono text-xs font-bold text-white shadow ${
+                                                hotspotDragIndex === spotIndex
+                                                    ? 'cursor-grabbing bg-emerald-500'
+                                                    : 'bg-emerald-600'
+                                            }`}
+                                            style={{
+                                                left: `${Number(spot.x) || 0}%`,
+                                                top: `${Number(spot.y) || 0}%`,
+                                                touchAction: 'none',
+                                            }}
+                                        >
+                                            {spotIndex + 1}
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="rounded-lg border border-dashed border-zinc-200 px-3 py-4 text-center text-xs text-zinc-400">
+                                    Isi URL atau unggah gambar dulu, lalu klik gambar untuk menandai titik.
+                                </p>
+                            )}
+                        </Field>
+                        <div className="space-y-2">
+                            {(content.spots ?? []).map((spot, spotIndex) => (
+                                <div key={spotIndex} className="flex items-center gap-2">
+                                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-600 font-mono text-xs font-bold text-white">
+                                        {spotIndex + 1}
+                                    </span>
+                                    <input
+                                        value={spot.label ?? ''}
+                                        onChange={(event) =>
+                                            setArrayItem('spots', spotIndex, { label: event.target.value })
+                                        }
+                                        className={inputClass}
+                                        placeholder={`Label titik ${spotIndex + 1}`}
+                                    />
+                                    <span className="hidden shrink-0 font-mono text-[11px] text-zinc-400 sm:block">
+                                        {Number(spot.x) || 0}%, {Number(spot.y) || 0}%
+                                    </span>
+                                    <IconButton
+                                        label="Hapus titik"
+                                        onClick={() => removeItem('spots', spotIndex)}
+                                        disabled={(content.spots ?? []).length <= 2}
+                                        danger
+                                    >
+                                        ✕
+                                    </IconButton>
+                                </div>
+                            ))}
+                        </div>
+                        <Field label="Pembahasan (opsional)">
+                            <textarea
+                                rows={2}
+                                value={content.explanation ?? ''}
+                                onChange={(event) => setContent({ explanation: event.target.value })}
+                                className={inputClass}
+                                placeholder="Tampil setelah siswa menjawab."
+                            />
+                        </Field>
+                    </>
+                )}
+
+                {type === 'materi_video_interaktif' && (
+                    <>
+                        <Field label="Judul (opsional)">
+                            <input
+                                value={content.title ?? ''}
+                                onChange={(event) => setContent({ title: event.target.value })}
+                                className={inputClass}
+                                placeholder="Judul video"
+                            />
+                        </Field>
+                        <Field
+                            label="URL video"
+                            hint="Hanya berkas video langsung (MP4/WebM) — tautan atau hasil unggah. YouTube tidak didukung untuk blok ini."
+                        >
+                            <input
+                                value={content.url ?? ''}
+                                onChange={(event) => setContent({ url: event.target.value })}
+                                className={inputClass}
+                                placeholder="https://.../video.mp4 atau /storage/modules/..."
+                            />
+                        </Field>
+                        <div>
+                            <label
+                                className={`inline-block rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 ${
+                                    uploading || !assetUploadUrl
+                                        ? 'cursor-not-allowed opacity-50'
+                                        : 'cursor-pointer'
+                                }`}
+                            >
+                                {uploading ? 'Mengunggah...' : 'Unggah video'}
+                                <input
+                                    type="file"
+                                    accept="video/mp4,video/webm,.mp4,.webm"
+                                    className="hidden"
+                                    disabled={uploading || !assetUploadUrl}
+                                    onChange={(event) => handleAssetUploadField(event, 'url')}
+                                />
+                            </label>
+                        </div>
+                        <Field
+                            label="Checkpoint pertanyaan"
+                            hint="Video berhenti di detik checkpoint dan siswa wajib menjawab sebelum lanjut. Boleh kosong bila hanya ingin video biasa."
+                        >
+                            <div className="space-y-2">
+                                {(content.checkpoints ?? []).map((checkpoint, checkpointIndex) => (
+                                    <RepeaterRow
+                                        key={checkpointIndex}
+                                        label="checkpoint"
+                                        onRemove={() => removeItem('checkpoints', checkpointIndex)}
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+                                                Detik ke-
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    value={checkpoint.at ?? 0}
+                                                    onChange={(event) =>
+                                                        setArrayItem('checkpoints', checkpointIndex, {
+                                                            at: Number(event.target.value),
+                                                        })
+                                                    }
+                                                    className="w-20 rounded-md border border-zinc-200 bg-white px-1.5 py-1 text-right font-mono text-xs text-zinc-900 focus:border-emerald-500 focus:outline-none"
+                                                />
+                                            </label>
+                                        </div>
+                                        <textarea
+                                            rows={2}
+                                            value={checkpoint.question ?? ''}
+                                            onChange={(event) =>
+                                                setArrayItem('checkpoints', checkpointIndex, {
+                                                    question: event.target.value,
+                                                })
+                                            }
+                                            className={inputClass}
+                                            placeholder="Pertanyaan checkpoint..."
+                                        />
+                                        <div className="space-y-1.5">
+                                            {(checkpoint.options ?? []).map((option, optionIndex) => (
+                                                <div key={optionIndex} className="flex items-center gap-2">
+                                                    <label className="flex shrink-0 items-center gap-1 text-[11px] text-zinc-500">
+                                                        <input
+                                                            type="radio"
+                                                            name={`checkpoint-key-${block.id}-${checkpointIndex}`}
+                                                            checked={
+                                                                (checkpoint.correct_index ?? 0) === optionIndex
+                                                            }
+                                                            onChange={() =>
+                                                                setArrayItem('checkpoints', checkpointIndex, {
+                                                                    correct_index: optionIndex,
+                                                                })
+                                                            }
+                                                            className="accent-emerald-600"
+                                                        />
+                                                        Kunci
+                                                    </label>
+                                                    <input
+                                                        value={option.text ?? ''}
+                                                        onChange={(event) =>
+                                                            setCheckpointOption(checkpointIndex, optionIndex, {
+                                                                text: event.target.value,
+                                                            })
+                                                        }
+                                                        className={inputClass}
+                                                        placeholder={`Opsi ${String.fromCharCode(65 + optionIndex)}`}
+                                                    />
+                                                    <IconButton
+                                                        label="Hapus opsi"
+                                                        onClick={() => {
+                                                            const options = (
+                                                                checkpoint.options ?? []
+                                                            ).filter(
+                                                                (_, position) => position !== optionIndex,
+                                                            );
+                                                            const correctIndex = Math.min(
+                                                                checkpoint.correct_index ?? 0,
+                                                                Math.max(0, options.length - 1),
+                                                            );
+                                                            setArrayItem('checkpoints', checkpointIndex, {
+                                                                options,
+                                                                correct_index: correctIndex,
+                                                            });
+                                                        }}
+                                                        disabled={(checkpoint.options ?? []).length <= 2}
+                                                        danger
+                                                    >
+                                                        ✕
+                                                    </IconButton>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => {
+                                                const options = [
+                                                    ...(checkpoint.options ?? []),
+                                                    { text: '' },
+                                                ];
+                                                setArrayItem('checkpoints', checkpointIndex, { options });
+                                            }}
+                                            disabled={(checkpoint.options ?? []).length >= 6}
+                                        >
+                                            + Tambah opsi
+                                        </Button>
+                                    </RepeaterRow>
+                                ))}
+                                {(content.checkpoints ?? []).length === 0 && (
+                                    <p className="rounded-lg border border-dashed border-zinc-200 px-3 py-4 text-center text-xs text-zinc-400">
+                                        Belum ada checkpoint. Tambahkan agar video berhenti untuk pertanyaan.
+                                    </p>
+                                )}
+                            </div>
+                        </Field>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                                addItem('checkpoints', {
+                                    at: 0,
+                                    question: '',
+                                    options: [{ text: '' }, { text: '' }],
+                                    correct_index: 0,
+                                })
+                            }
+                            disabled={(content.checkpoints ?? []).length >= 20}
+                        >
+                            + Tambah checkpoint
+                        </Button>
+                    </>
+                )}
+
+                {type === 'polling' && (
+                    <>
+                        <Field
+                            label="Pertanyaan polling"
+                            hint="Polling kilat tidak dinilai — untuk memancing diskusi atau mengecek pendapat kelas."
+                        >
+                            <textarea
+                                rows={2}
+                                value={content.question ?? ''}
+                                onChange={(event) => setContent({ question: event.target.value })}
+                                className={inputClass}
+                                placeholder="Contoh: Bagian mana yang paling sulit dari materi hari ini?"
+                            />
+                        </Field>
+                        <div className="space-y-2">
+                            {(content.options ?? []).map((option, optionIndex) => (
+                                <div key={optionIndex} className="flex items-start gap-2">
+                                    <span className="mt-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-50 font-mono text-xs text-emerald-700">
+                                        {String.fromCharCode(65 + optionIndex)}
+                                    </span>
+                                    <input
+                                        value={typeof option === 'string' ? option : (option?.text ?? '')}
+                                        onChange={(event) => {
+                                            const next = [...(content.options ?? [])];
+                                            next[optionIndex] = event.target.value;
+                                            setContent({ options: next });
+                                        }}
+                                        className={inputClass}
+                                        placeholder={`Opsi ${String.fromCharCode(65 + optionIndex)}`}
+                                    />
+                                    <IconButton
+                                        label="Hapus opsi"
+                                        onClick={() => removeItem('options', optionIndex)}
+                                        disabled={(content.options ?? []).length <= 2}
+                                        danger
+                                    >
+                                        ✕
+                                    </IconButton>
+                                </div>
+                            ))}
+                        </div>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => addItem('options', '')}
+                            disabled={(content.options ?? []).length >= 6}
+                        >
+                            + Tambah opsi
+                        </Button>
                     </>
                 )}
             </div>

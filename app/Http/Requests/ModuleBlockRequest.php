@@ -118,6 +118,32 @@ abstract class ModuleBlockRequest extends FormRequest
                 'content.question' => ['required', 'string', 'max:5000'],
                 'content.min_words' => ['nullable', 'integer', 'min:0', 'max:2000'],
             ],
+            ModuleBlock::BLOCK_SOAL_HOTSPOT => [
+                'content.question' => ['required', 'string', 'max:5000'],
+                'content.image_url' => ['required', 'string', 'max:2048', 'regex:/^(https?:\/\/|\/)/i'],
+                'content.spots' => ['required', 'array', 'min:2', 'max:20'],
+                'content.spots.*.x' => ['required', 'numeric', 'min:0', 'max:100'],
+                'content.spots.*.y' => ['required', 'numeric', 'min:0', 'max:100'],
+                'content.spots.*.label' => ['required', 'string', 'max:180'],
+                'content.explanation' => ['nullable', 'string', 'max:5000'],
+            ],
+            ModuleBlock::BLOCK_POLLING => [
+                // Polling kilat: tanpa nilai, poin diabaikan (selalu 0 dari editor).
+                'content.question' => ['required', 'string', 'max:5000'],
+                'content.options' => ['required', 'array', 'min:2', 'max:6'],
+                'content.options.*' => ['required', 'string', 'max:1000'],
+            ],
+            ModuleBlock::BLOCK_MATERI_VIDEO_INTERAKTIF => [
+                'content.title' => ['nullable', 'string', 'max:180'],
+                'content.url' => ['required', 'string', 'max:2048', 'regex:/^(https?:\/\/|\/)/i'],
+                'content.checkpoints' => ['nullable', 'array', 'max:20'],
+                'content.checkpoints.*.at' => ['required', 'integer', 'min:0'],
+                'content.checkpoints.*.question' => ['required', 'string', 'max:1000'],
+                'content.checkpoints.*.options' => ['required', 'array', 'min:2', 'max:6'],
+                'content.checkpoints.*.options.*.text' => ['required', 'string', 'max:500'],
+                'content.checkpoints.*.correct_index' => ['required', 'integer', 'min:0'],
+                'content.explanation' => ['nullable', 'string', 'max:5000'],
+            ],
             default => [],
         });
     }
@@ -158,6 +184,39 @@ abstract class ModuleBlockRequest extends FormRequest
                         );
                     }
                 }
+
+                if ($type === ModuleBlock::BLOCK_SOAL_HOTSPOT) {
+                    $labels = collect((array) $this->input('content.spots', []))
+                        ->map(fn ($spot) => is_array($spot) ? trim((string) ($spot['label'] ?? '')) : '')
+                        ->filter(fn (string $label) => $label !== '');
+
+                    // Penilaian mencocokkan berdasarkan label: label ganda
+                    // membuat jawaban tidak bisa dinilai secara unik.
+                    if ($labels->count() !== $labels->unique()->count()) {
+                        $validator->errors()->add(
+                            'content.spots',
+                            'Setiap titik hotspot wajib memiliki label yang berbeda.',
+                        );
+                    }
+                }
+
+                if ($type === ModuleBlock::BLOCK_MATERI_VIDEO_INTERAKTIF) {
+                    foreach ((array) $this->input('content.checkpoints', []) as $checkpointIndex => $checkpoint) {
+                        if (! is_array($checkpoint)) {
+                            continue;
+                        }
+
+                        $optionCount = count((array) ($checkpoint['options'] ?? []));
+                        $correctIndex = $checkpoint['correct_index'] ?? null;
+
+                        if (is_int($correctIndex) && $correctIndex >= $optionCount) {
+                            $validator->errors()->add(
+                                'content.checkpoints.'.$checkpointIndex.'.correct_index',
+                                'Indeks jawaban benar berada di luar daftar opsi checkpoint.',
+                            );
+                        }
+                    }
+                }
             },
         ];
     }
@@ -169,6 +228,7 @@ abstract class ModuleBlockRequest extends FormRequest
     {
         return [
             'content.url.regex' => 'URL harus diawali http://, https://, atau /.',
+            'content.image_url.regex' => 'URL gambar harus diawali http://, https://, atau /.',
             'content.files.*.url.regex' => 'URL berkas harus diawali http://, https://, atau /.',
             'content.options.*.correct.required' => 'Tandai benar/salah untuk setiap opsi.',
         ];

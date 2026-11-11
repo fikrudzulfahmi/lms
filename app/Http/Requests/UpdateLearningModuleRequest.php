@@ -28,6 +28,7 @@ class UpdateLearningModuleRequest extends FormRequest
             'status' => ['sometimes', 'required', Rule::in(LearningModule::STATUS_TYPES)],
             'kktp_score' => ['sometimes', 'required', 'integer', 'min:0', 'max:100'],
             'max_attempts' => ['sometimes', 'required', 'integer', 'min:1', 'max:10'],
+            'allow_practice' => ['sometimes', 'boolean'],
         ];
     }
 }
