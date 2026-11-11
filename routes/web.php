@@ -110,6 +110,7 @@ Route::middleware('auth')->group(function () {
     Route::prefix('student')->name('student.')->middleware('role:student')->group(function () {
         Route::get('/', [StudentHomeController::class, 'index'])->name('home');
         Route::get('/grades', [GradeController::class, 'index'])->name('grades.index');
+        Route::get('/live', [LiveController::class, 'joinForm'])->name('live');
     });
 
     Route::prefix('live')->name('student.live.')->middleware('role:student')->group(function () {
