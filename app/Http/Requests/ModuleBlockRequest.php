@@ -34,6 +34,33 @@ abstract class ModuleBlockRequest extends FormRequest
         ];
 
         return array_merge($rules, match ($type) {
+            ModuleBlock::BLOCK_SECTION_HEADING => [
+                'content.title' => ['required', 'string', 'max:180'],
+                'content.body' => ['nullable', 'string', 'max:2000'],
+            ],
+            ModuleBlock::BLOCK_MATERI_RICHTEXT => [
+                'content.title' => ['nullable', 'string', 'max:180'],
+                'content.body' => ['required', 'string', 'max:20000'],
+            ],
+            ModuleBlock::BLOCK_MATERI_VIDEO => [
+                'content.title' => ['nullable', 'string', 'max:180'],
+                'content.source' => ['required', 'string', Rule::in(['youtube', 'url', 'upload'])],
+                'content.url' => ['required', 'string', 'max:2048', 'regex:/^(https?:\/\/|\/)/i'],
+                'content.caption' => ['nullable', 'string', 'max:500'],
+            ],
+            ModuleBlock::BLOCK_MATERI_FILE => [
+                'content.title' => ['nullable', 'string', 'max:180'],
+                'content.files' => ['required', 'array', 'min:1', 'max:20'],
+                'content.files.*.name' => ['required', 'string', 'max:255'],
+                'content.files.*.url' => ['required', 'string', 'max:2048', 'regex:/^(https?:\/\/|\/)/i'],
+                'content.files.*.size' => ['nullable', 'integer', 'min:0'],
+            ],
+            ModuleBlock::BLOCK_MATERI_EMBED => [
+                'content.title' => ['nullable', 'string', 'max:180'],
+                'content.url' => ['required', 'string', 'max:2048', 'regex:/^(https?:\/\/|\/)/i'],
+                'content.embed' => ['nullable', 'boolean'],
+                'content.caption' => ['nullable', 'string', 'max:500'],
+            ],
             ModuleBlock::BLOCK_MATERI_TEKS => [
                 'content.title' => ['required', 'string', 'max:180'],
                 'content.body' => ['required', 'string', 'max:20000'],
@@ -61,6 +88,17 @@ abstract class ModuleBlockRequest extends FormRequest
                 'content.options' => ['required', 'array', 'min:2', 'max:10'],
                 'content.options.*.text' => ['required', 'string', 'max:1000'],
                 'content.options.*.correct' => ['required', 'boolean'],
+                'content.explanation' => ['nullable', 'string', 'max:5000'],
+            ],
+            ModuleBlock::BLOCK_SOAL_TRUEFALSE => [
+                'content.question' => ['required', 'string', 'max:5000'],
+                'content.answer' => ['required', 'boolean'],
+                'content.explanation' => ['nullable', 'string', 'max:5000'],
+            ],
+            ModuleBlock::BLOCK_SOAL_FILLBLANK => [
+                'content.question' => ['required', 'string', 'max:5000'],
+                'content.answers' => ['required', 'array', 'min:1', 'max:10'],
+                'content.answers.*' => ['required', 'string', 'max:500'],
                 'content.explanation' => ['nullable', 'string', 'max:5000'],
             ],
             ModuleBlock::BLOCK_SOAL_SEQUENCING => [
@@ -130,7 +168,8 @@ abstract class ModuleBlockRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'content.url.regex' => 'URL gambar harus diawali http://, https://, atau /.',
+            'content.url.regex' => 'URL harus diawali http://, https://, atau /.',
+            'content.files.*.url.regex' => 'URL berkas harus diawali http://, https://, atau /.',
             'content.options.*.correct.required' => 'Tandai benar/salah untuk setiap opsi.',
         ];
     }

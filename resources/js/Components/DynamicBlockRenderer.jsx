@@ -12,11 +12,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 const MODES = ['editor_guru', 'live_proyektor', 'live_hp_siswa', 'mandiri_siswa'];
 
 const BLOCK_LABELS = {
+    section_heading: 'Judul Bagian',
+    materi_richtext: 'Teks Kaya',
+    materi_video: 'Video',
+    materi_file: 'Lampiran Berkas',
+    materi_embed: 'Tautan / Embed',
     materi_teks: 'Teks Materi',
     materi_accordion: 'Accordion SOP',
     materi_flashcard: 'Flashcard',
     slide_image: 'Slide Gambar',
     soal_mcq: 'Pilihan Ganda',
+    soal_truefalse: 'Benar / Salah',
+    soal_fillblank: 'Isian Singkat',
     soal_sequencing: 'Urutan Prosedur',
     soal_matching: 'Mencocokkan',
     soal_essay_ai: 'Studi Kasus Esai',
@@ -73,7 +80,138 @@ function normalize(content = {}) {
             : [],
         rights: Array.isArray(c.rights) ? c.rights.map((right) => text(right)).filter(Boolean) : [],
         keyless: Boolean(c.keyless),
+        files: Array.isArray(c.files)
+            ? c.files
+                  .map((file) => ({
+                      name: text(file?.name ?? file?.filename),
+                      url: imageSource(file?.url),
+                      size: Number(file?.size) || 0,
+                  }))
+                  .filter((file) => file.url)
+            : [],
+        source: text(c.source),
+        embed: Boolean(c.embed),
+        answerKey: typeof c.answer === 'boolean' ? c.answer : null,
+        answers: Array.isArray(c.answers) ? c.answers.map((answer) => text(answer)).filter(Boolean) : [],
     };
+}
+
+function formatBytes(size) {
+    const bytes = Number(size) || 0;
+    if (bytes <= 0) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1).replace(/\.0$/, '')} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1).replace(/\.0$/, '')} MB`;
+}
+
+function youtubeVideoId(url) {
+    const value = text(url);
+    const patterns = [
+        /[?&]v=([\w-]{6,})/,
+        /youtu\.be\/([\w-]{6,})/,
+        /\/embed\/([\w-]{6,})/,
+        /\/shorts\/([\w-]{6,})/,
+    ];
+
+    for (const pattern of patterns) {
+        const match = value.match(pattern);
+        if (match) return match[1];
+    }
+
+    return null;
+}
+
+/** Parse SATU baris markdown ringan: **tebal**, *miring*, [label](url). Tanpa HTML mentah. */
+function renderInline(value, keyPrefix) {
+    const tokens = value.split(/(\*\*[^*\n]+\*\*|\*[^*\n]+\*|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\))/g);
+
+    return tokens.map((token, index) => {
+        const key = `${keyPrefix}-${index}`;
+        if (!token) return null;
+
+        const bold = token.match(/^\*\*([^*\n]+)\*\*$/);
+        if (bold) return <strong key={key}>{bold[1]}</strong>;
+
+        const italic = token.match(/^\*([^*\n]+)\*$/);
+        if (italic) return <em key={key}>{italic[1]}</em>;
+
+        const link = token.match(/^\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)$/);
+        if (link) {
+            return (
+                <a
+                    key={key}
+                    href={link[2]}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-emerald-700 underline decoration-emerald-300 underline-offset-2 hover:text-emerald-800"
+                >
+                    {link[1]}
+                </a>
+            );
+        }
+
+        return <span key={key}>{token}</span>;
+    });
+}
+
+/**
+ * Render markdown subset yang aman menjadi elemen React.
+ * Blok: paragraf (baris kosong), daftar "- ", daftar bernomor "1. ".
+ */
+function RichText({ body, mode }) {
+    const blocks = text(body)
+        .split(/\n\s*\n/)
+        .map((block) => block.trim())
+        .filter(Boolean);
+
+    const paragraphClass =
+        mode === 'live_proyektor' ? 'text-2xl leading-relaxed text-zinc-200' : 'text-sm leading-6 text-zinc-600';
+    const listClass =
+        mode === 'live_proyektor' ? 'text-2xl leading-relaxed text-zinc-200' : 'text-sm leading-6 text-zinc-600';
+
+    if (blocks.length === 0) return null;
+
+    return (
+        <div className="space-y-3">
+            {blocks.map((block, blockIndex) => {
+                const lines = block.split('\n').map((line) => line.trim()).filter(Boolean);
+                const key = `block-${blockIndex}`;
+
+                if (lines.length > 0 && lines.every((line) => line.startsWith('- '))) {
+                    return (
+                        <ul key={key} className={`list-disc space-y-1 pl-5 ${listClass}`}>
+                            {lines.map((line, lineIndex) => (
+                                <li key={`${key}-${lineIndex}`}>{renderInline(line.slice(2), `${key}-${lineIndex}`)}</li>
+                            ))}
+                        </ul>
+                    );
+                }
+
+                if (lines.length > 0 && lines.every((line) => /^\d+\.\s/.test(line))) {
+                    return (
+                        <ol key={key} className={`list-decimal space-y-1 pl-5 ${listClass}`}>
+                            {lines.map((line, lineIndex) => (
+                                <li key={`${key}-${lineIndex}`}>
+                                    {renderInline(line.replace(/^\d+\.\s/, ''), `${key}-${lineIndex}`)}
+                                </li>
+                            ))}
+                        </ol>
+                    );
+                }
+
+                return (
+                    <p key={key} className={paragraphClass}>
+                        {lines.map((line, lineIndex) => (
+                            <span key={`${key}-${lineIndex}`}>
+                                {lineIndex > 0 && <br />}
+                                {renderInline(line, `${key}-${lineIndex}`)}
+                            </span>
+                        ))}
+                    </p>
+                );
+            })}
+        </div>
+    );
 }
 
 function Shell({ mode, children, className = '' }) {
@@ -712,6 +850,513 @@ function EssayBlock({ data, mode, points, rubric, onSubmitAnswer, initialAnswer 
     );
 }
 
+function SectionHeadingBlock({ data, mode }) {
+    const titleSize =
+        mode === 'live_proyektor'
+            ? 'text-4xl sm:text-5xl'
+            : mode === 'editor_guru'
+              ? 'text-xl'
+              : 'text-2xl';
+
+    return (
+        <div className={mode === 'editor_guru' ? 'py-1' : 'py-2'}>
+            <span
+                className={`mb-3 block h-1 w-14 rounded-full ${
+                    mode === 'live_proyektor' ? 'bg-emerald-400' : 'bg-emerald-600'
+                }`}
+            />
+            <h3
+                className={`font-display font-bold leading-tight ${
+                    mode === 'live_proyektor' ? 'text-white' : 'text-emerald-950'
+                } ${titleSize}`}
+            >
+                {data.title}
+            </h3>
+            {data.body && (
+                <p
+                    className={`mt-2 max-w-2xl ${
+                        mode === 'live_proyektor'
+                            ? 'text-xl leading-relaxed text-zinc-300'
+                            : 'text-sm leading-6 text-zinc-500'
+                    }`}
+                >
+                    {data.body}
+                </p>
+            )}
+        </div>
+    );
+}
+
+function VideoBlock({ data, mode }) {
+    const videoId = youtubeVideoId(data.url);
+    const isYoutube = data.source === 'youtube' || videoId !== null;
+
+    return (
+        <figure>
+            <Heading mode={mode} kicker={BLOCK_LABELS.materi_video}>
+                {data.title}
+            </Heading>
+            {isYoutube && videoId ? (
+                <div className="aspect-video w-full overflow-hidden rounded-lg bg-black">
+                    <iframe
+                        src={`https://www.youtube-nocookie.com/embed/${videoId}`}
+                        title={data.title || 'Video materi'}
+                        loading="lazy"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                        className="h-full w-full"
+                    />
+                </div>
+            ) : data.url ? (
+                <video controls src={data.url} className="aspect-video w-full rounded-lg bg-black" />
+            ) : (
+                <div
+                    className={`flex aspect-video items-center justify-center rounded-lg border border-dashed text-xs ${
+                        mode === 'live_proyektor'
+                            ? 'border-zinc-700 text-zinc-500'
+                            : 'border-zinc-200 text-zinc-400'
+                    }`}
+                >
+                    Belum ada video.
+                </div>
+            )}
+            {data.caption && (
+                <figcaption
+                    className={`mt-2 text-center ${
+                        mode === 'live_proyektor' ? 'text-lg text-zinc-400' : 'text-xs text-zinc-500'
+                    }`}
+                >
+                    {data.caption}
+                </figcaption>
+            )}
+        </figure>
+    );
+}
+
+function FileBlock({ data, mode }) {
+    return (
+        <div>
+            <Heading mode={mode} kicker={BLOCK_LABELS.materi_file}>
+                {data.title}
+            </Heading>
+            {data.files.length === 0 ? (
+                <p className={`text-xs ${mode === 'live_proyektor' ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                    Belum ada berkas terlampir.
+                </p>
+            ) : (
+                <div className="space-y-2">
+                    {data.files.map((file, fileIndex) => (
+                        <div
+                            key={`${file.url}-${fileIndex}`}
+                            className={`flex items-center gap-3 rounded-lg border px-3.5 py-3 ${
+                                mode === 'live_proyektor'
+                                    ? 'border-zinc-700 bg-zinc-900'
+                                    : 'border-zinc-200 bg-white'
+                            }`}
+                        >
+                            <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                className={`h-8 w-8 shrink-0 ${mode === 'live_proyektor' ? 'text-emerald-400' : 'text-emerald-700'}`}
+                                aria-hidden="true"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M7 3h7l4 4v14H7z M14 3v4h4 M10 12h5 M10 16h5"
+                                />
+                            </svg>
+                            <span className="min-w-0 flex-1">
+                                <span
+                                    className={`block truncate font-medium ${
+                                        mode === 'live_proyektor' ? 'text-lg text-zinc-100' : 'text-sm text-zinc-800'
+                                    }`}
+                                >
+                                    {file.name || 'Berkas'}
+                                </span>
+                                {formatBytes(file.size) && (
+                                    <span className={`font-mono text-[11px] ${mode === 'live_proyektor' ? 'text-zinc-400' : 'text-zinc-400'}`}>
+                                        {formatBytes(file.size)}
+                                    </span>
+                                )}
+                            </span>
+                            <a
+                                href={file.url}
+                                download
+                                className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium ${
+                                    mode === 'live_proyektor'
+                                        ? 'bg-emerald-600 text-white hover:bg-emerald-500'
+                                        : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                }`}
+                            >
+                                Unduh
+                            </a>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function EmbedBlock({ data, mode }) {
+    let hostname = '';
+    try {
+        hostname = data.url ? new URL(data.url).hostname : '';
+    } catch {
+        hostname = '';
+    }
+
+    return (
+        <div>
+            <Heading mode={mode} kicker={BLOCK_LABELS.materi_embed}>
+                {data.title}
+            </Heading>
+            {data.url ? (
+                <>
+                    {data.embed ? (
+                        <div
+                            className={`aspect-video w-full overflow-hidden rounded-lg border ${
+                                mode === 'live_proyektor' ? 'border-zinc-700 bg-zinc-900' : 'border-zinc-200 bg-white'
+                            }`}
+                        >
+                            <iframe
+                                src={data.url}
+                                title={data.title || 'Konten tersemat'}
+                                loading="lazy"
+                                allowFullScreen
+                                className="h-full w-full"
+                            />
+                        </div>
+                    ) : (
+                        <a
+                            href={data.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={`flex items-center gap-3 rounded-lg border px-3.5 py-3 transition-colors ${
+                                mode === 'live_proyektor'
+                                    ? 'border-zinc-700 bg-zinc-900 hover:border-emerald-600'
+                                    : 'border-zinc-200 bg-white hover:border-emerald-300 hover:bg-emerald-50'
+                            }`}
+                        >
+                            <span className="min-w-0 flex-1">
+                                <span
+                                    className={`block truncate font-medium ${
+                                        mode === 'live_proyektor' ? 'text-lg text-zinc-100' : 'text-sm text-zinc-800'
+                                    }`}
+                                >
+                                    {hostname || data.url}
+                                </span>
+                                <span className={`block truncate text-xs ${mode === 'live_proyektor' ? 'text-zinc-400' : 'text-zinc-400'}`}>
+                                    {data.url}
+                                </span>
+                            </span>
+                            <span className={`shrink-0 text-lg ${mode === 'live_proyektor' ? 'text-emerald-400' : 'text-emerald-700'}`}>↗</span>
+                        </a>
+                    )}
+                    {data.embed && (
+                        <p className="mt-2">
+                            <a
+                                href={data.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className={`text-xs font-medium underline underline-offset-2 ${
+                                    mode === 'live_proyektor' ? 'text-emerald-400' : 'text-emerald-700'
+                                }`}
+                            >
+                                Buka di tab baru ↗
+                            </a>
+                        </p>
+                    )}
+                </>
+            ) : (
+                <p className={`text-xs ${mode === 'live_proyektor' ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                    Belum ada tautan.
+                </p>
+            )}
+            {data.caption && (
+                <p className={`mt-2 ${mode === 'live_proyektor' ? 'text-lg text-zinc-400' : 'text-xs text-zinc-500'}`}>
+                    {data.caption}
+                </p>
+            )}
+        </div>
+    );
+}
+
+function TrueFalseBlock({ data, mode, points, reveal, onSubmitAnswer, initialAnswer = null }) {
+    const [selected, setSelected] = useState(() =>
+        typeof initialAnswer?.value === 'boolean' ? initialAnswer.value : null,
+    );
+    const [checked, setChecked] = useState(false);
+    const [submitted, setSubmitted] = useState(() => initialAnswer != null);
+    const [sending, setSending] = useState(false);
+
+    useEffect(() => {
+        setSelected(typeof initialAnswer?.value === 'boolean' ? initialAnswer.value : null);
+        setChecked(false);
+        setSubmitted(initialAnswer != null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [data.question]);
+
+    const interactive = mode !== 'editor_guru' && mode !== 'live_proyektor';
+    const showKey = mode === 'editor_guru' || reveal;
+    const choices = [
+        { value: true, label: 'Benar', icon: '✓' },
+        { value: false, label: 'Salah', icon: '✕' },
+    ];
+
+    return (
+        <div>
+            <QuestionHeader label="Benar / Salah" points={points} mode={mode} />
+            <p className={`mb-4 font-medium ${mode === 'live_proyektor' ? 'text-2xl sm:text-3xl' : 'text-sm'}`}>
+                {data.question}
+            </p>
+            <div className="grid grid-cols-2 gap-2.5">
+                {choices.map((choice) => {
+                    const isSelected = selected === choice.value;
+                    const isCorrect = data.answerKey !== null && choice.value === data.answerKey;
+                    const tone = showKey && isCorrect
+                        ? mode === 'live_proyektor'
+                            ? 'border-emerald-700 bg-emerald-950/50'
+                            : 'border-emerald-300 bg-emerald-50'
+                        : isSelected
+                          ? mode === 'live_proyektor'
+                              ? 'border-emerald-500 bg-zinc-800'
+                              : 'border-emerald-400 bg-white'
+                          : mode === 'live_proyektor'
+                            ? 'border-zinc-700 bg-zinc-900'
+                            : 'border-zinc-200 bg-white hover:border-emerald-300';
+
+                    return (
+                        <button
+                            key={String(choice.value)}
+                            type="button"
+                            disabled={!interactive}
+                            onClick={() => {
+                                setSelected(choice.value);
+                                setChecked(false);
+                            }}
+                            className={`flex items-center justify-center gap-2 rounded-lg border px-3.5 py-4 text-center transition-colors disabled:cursor-default ${tone}`}
+                        >
+                            <span
+                                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-sm font-bold ${
+                                    choice.value
+                                        ? 'border-emerald-300 text-emerald-600'
+                                        : 'border-red-300 text-red-500'
+                                }`}
+                            >
+                                {choice.icon}
+                            </span>
+                            <span className={`font-semibold ${mode === 'live_proyektor' ? 'text-2xl' : 'text-base'}`}>
+                                {choice.label}
+                            </span>
+                            {showKey && isCorrect && (
+                                <span className="font-mono text-[10px] uppercase tracking-wider text-emerald-600">
+                                    kunci
+                                </span>
+                            )}
+                        </button>
+                    );
+                })}
+            </div>
+
+            {interactive && (
+                <div className="mt-4 flex items-center gap-3">
+                    {onSubmitAnswer ? (
+                        <>
+                            <button
+                                type="button"
+                                disabled={selected === null || sending}
+                                onClick={() =>
+                                    submitAndMark(
+                                        onSubmitAnswer,
+                                        { value: selected },
+                                        setSubmitted,
+                                        setSending,
+                                    )
+                                }
+                                className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                {sending ? 'Mengirim...' : submitted ? 'Kirim Ulang Jawaban' : 'Kirim Jawaban'}
+                            </button>
+                            {submitted && (
+                                <span className="text-xs font-medium text-emerald-700">Jawaban terkirim.</span>
+                            )}
+                        </>
+                    ) : (
+                        <>
+                            <button
+                                type="button"
+                                disabled={selected === null}
+                                onClick={() => setChecked(true)}
+                                className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                Periksa Jawaban
+                            </button>
+                            {checked && selected !== null && data.answerKey !== null && (
+                                <span
+                                    className={`text-xs font-medium ${
+                                        selected === data.answerKey ? 'text-emerald-700' : 'text-red-600'
+                                    }`}
+                                >
+                                    {selected === data.answerKey ? 'Tepat.' : 'Belum tepat, coba lagi.'}
+                                </span>
+                            )}
+                        </>
+                    )}
+                </div>
+            )}
+
+            {data.explanation && (mode === 'editor_guru' || checked || reveal) && (
+                <p
+                    className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+                        mode === 'live_proyektor'
+                            ? 'border-zinc-700 bg-zinc-800 text-zinc-300'
+                            : 'border-zinc-200 bg-zinc-50 text-zinc-600'
+                    }`}
+                >
+                    {data.explanation}
+                </p>
+            )}
+        </div>
+    );
+}
+
+function normalizeFillBlankClient(value) {
+    return String(value ?? '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+}
+
+function FillBlankBlock({ data, mode, points, reveal, onSubmitAnswer, initialAnswer = null }) {
+    const [answer, setAnswer] = useState(() => (typeof initialAnswer?.text === 'string' ? initialAnswer.text : ''));
+    const [checked, setChecked] = useState(false);
+    const [submitted, setSubmitted] = useState(() => initialAnswer != null);
+    const [sending, setSending] = useState(false);
+
+    useEffect(() => {
+        setAnswer(typeof initialAnswer?.text === 'string' ? initialAnswer.text : '');
+        setChecked(false);
+        setSubmitted(initialAnswer != null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [data.question]);
+
+    const interactive = mode !== 'editor_guru' && mode !== 'live_proyektor';
+    const isCorrect =
+        data.answers.length > 0 &&
+        data.answers.some((accepted) => normalizeFillBlankClient(accepted) === normalizeFillBlankClient(answer));
+    const questionParts = data.question.split('___');
+
+    return (
+        <div>
+            <QuestionHeader label="Isian Singkat" points={points} mode={mode} />
+            <p className={`mb-4 font-medium ${mode === 'live_proyektor' ? 'text-2xl sm:text-3xl' : 'text-sm'}`}>
+                {questionParts.map((part, partIndex) => (
+                    <span key={partIndex}>
+                        {partIndex > 0 && (
+                            <span className="mx-1 inline-block min-w-[4.5rem] border-b-2 border-emerald-500 align-baseline">
+                                &nbsp;
+                            </span>
+                        )}
+                        {part}
+                    </span>
+                ))}
+            </p>
+
+            {interactive ? (
+                <>
+                    <input
+                        type="text"
+                        value={answer}
+                        onChange={(event) => {
+                            setAnswer(event.target.value);
+                            setChecked(false);
+                            setSubmitted(false);
+                        }}
+                        placeholder="Tulis jawabanmu di sini..."
+                        className={`w-full rounded-lg border px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 ${
+                            mode === 'live_proyektor'
+                                ? 'border-zinc-600 bg-zinc-800 text-white'
+                                : 'border-zinc-200 bg-white text-zinc-900'
+                        }`}
+                    />
+                    <div className="mt-3 flex items-center gap-3">
+                        {onSubmitAnswer ? (
+                            <>
+                                <button
+                                    type="button"
+                                    disabled={answer.trim().length === 0 || sending}
+                                    onClick={() =>
+                                        submitAndMark(
+                                            onSubmitAnswer,
+                                            { text: answer },
+                                            setSubmitted,
+                                            setSending,
+                                        )
+                                    }
+                                    className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                    {sending ? 'Mengirim...' : submitted ? 'Kirim Ulang Jawaban' : 'Kirim Jawaban'}
+                                </button>
+                                {submitted && (
+                                    <span className="text-xs font-medium text-emerald-700">Jawaban terkirim.</span>
+                                )}
+                            </>
+                        ) : (
+                            <>
+                                <button
+                                    type="button"
+                                    disabled={answer.trim().length === 0}
+                                    onClick={() => setChecked(true)}
+                                    className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                    Periksa Jawaban
+                                </button>
+                                {checked && data.answers.length > 0 && (
+                                    <span className={`text-xs font-medium ${isCorrect ? 'text-emerald-700' : 'text-red-600'}`}>
+                                        {isCorrect ? 'Tepat.' : 'Belum tepat, coba lagi.'}
+                                    </span>
+                                )}
+                            </>
+                        )}
+                    </div>
+                </>
+            ) : (
+                <div
+                    className={`rounded-lg border border-dashed px-3 py-6 text-center text-xs ${
+                        mode === 'live_proyektor'
+                            ? 'border-zinc-700 text-zinc-500'
+                            : 'border-zinc-200 text-zinc-400'
+                    }`}
+                >
+                    Siswa mengetik jawaban singkat pada perangkat masing-masing.
+                </div>
+            )}
+
+            {(mode === 'editor_guru' || reveal) && data.answers.length > 0 && (
+                <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                    Kunci: {data.answers.join(' / ')}
+                </div>
+            )}
+
+            {data.explanation && (mode === 'editor_guru' || checked || reveal) && (
+                <p
+                    className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+                        mode === 'live_proyektor'
+                            ? 'border-zinc-700 bg-zinc-800 text-zinc-300'
+                            : 'border-zinc-200 bg-zinc-50 text-zinc-600'
+                    }`}
+                >
+                    {data.explanation}
+                </p>
+            )}
+        </div>
+    );
+}
+
 export default function DynamicBlockRenderer({
     block,
     mode = 'editor_guru',
@@ -731,6 +1376,33 @@ export default function DynamicBlockRenderer({
     let inner = null;
 
     switch (type) {
+        case 'section_heading':
+            inner = <SectionHeadingBlock data={data} mode={safeMode} />;
+            break;
+
+        case 'materi_richtext':
+            inner = (
+                <>
+                    <Heading mode={safeMode} kicker={BLOCK_LABELS[type]}>
+                        {data.title}
+                    </Heading>
+                    <RichText body={data.body} mode={safeMode} />
+                </>
+            );
+            break;
+
+        case 'materi_video':
+            inner = <VideoBlock data={data} mode={safeMode} />;
+            break;
+
+        case 'materi_file':
+            inner = <FileBlock data={data} mode={safeMode} />;
+            break;
+
+        case 'materi_embed':
+            inner = <EmbedBlock data={data} mode={safeMode} />;
+            break;
+
         case 'materi_teks':
             inner = (
                 <>
@@ -886,6 +1558,32 @@ export default function DynamicBlockRenderer({
             );
             break;
 
+        case 'soal_truefalse':
+            inner = (
+                <TrueFalseBlock
+                    data={data}
+                    mode={safeMode}
+                    points={points}
+                    reveal={showAnswer}
+                    onSubmitAnswer={onSubmitAnswer}
+                    initialAnswer={initialAnswer}
+                />
+            );
+            break;
+
+        case 'soal_fillblank':
+            inner = (
+                <FillBlankBlock
+                    data={data}
+                    mode={safeMode}
+                    points={points}
+                    reveal={showAnswer}
+                    onSubmitAnswer={onSubmitAnswer}
+                    initialAnswer={initialAnswer}
+                />
+            );
+            break;
+
         case 'soal_sequencing':
             inner = (
                 <SequencingBlock
@@ -945,7 +1643,7 @@ export default function DynamicBlockRenderer({
                     {total ? ` / ${String(total).padStart(2, '0')}` : ''} · {BLOCK_LABELS[type] ?? type}
                 </div>
             )}
-            <Shell mode={safeMode}>{inner}</Shell>
+            {type === 'section_heading' ? inner : <Shell mode={safeMode}>{inner}</Shell>}
         </div>
     );
 }

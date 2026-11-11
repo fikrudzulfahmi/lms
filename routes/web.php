@@ -97,6 +97,7 @@ Route::middleware('auth')->group(function () {
         Route::patch('/modules/{module}', [ModuleController::class, 'update'])->name('modules.update');
 
         Route::post('/modules/{module}/blocks', [ModuleBlockController::class, 'store'])->name('modules.blocks.store');
+        Route::post('/modules/{module}/blocks/upload', [ModuleBlockController::class, 'uploadAsset'])->name('modules.blocks.upload');
         Route::post('/modules/{module}/slides', [ModuleSlideController::class, 'store'])->name('modules.slides.store');
         Route::delete('/modules/{module}/slides', [ModuleSlideController::class, 'destroy'])->name('modules.slides.destroy');
 

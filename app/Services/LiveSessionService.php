@@ -223,6 +223,8 @@ class LiveSessionService
 
         $correct = match ($block->block_type) {
             ModuleBlock::BLOCK_SOAL_MCQ => $this->gradeMcq($content, $answer),
+            ModuleBlock::BLOCK_SOAL_TRUEFALSE => $this->gradeTrueFalse($content, $answer),
+            ModuleBlock::BLOCK_SOAL_FILLBLANK => $this->gradeFillBlank($content, $answer),
             ModuleBlock::BLOCK_SOAL_SEQUENCING => $this->gradeSequencing($content, $answer),
             ModuleBlock::BLOCK_SOAL_MATCHING => $this->gradeMatching($content, $answer),
             default => null,
@@ -249,6 +251,47 @@ class LiveSessionService
         $options = array_values((array) ($content['options'] ?? []));
 
         return isset($options[(int) $index]) && (bool) ($options[(int) $index]['correct'] ?? false);
+    }
+
+    /**
+     * @param  array<string, mixed>  $content
+     * @param  array<string, mixed>  $answer
+     */
+    private function gradeTrueFalse(array $content, array $answer): bool
+    {
+        $given = $answer['value'] ?? null;
+        $key = $content['answer'] ?? null;
+
+        return is_bool($given) && is_bool($key) && $given === $key;
+    }
+
+    /**
+     * @param  array<string, mixed>  $content
+     * @param  array<string, mixed>  $answer
+     */
+    private function gradeFillBlank(array $content, array $answer): bool
+    {
+        $given = $this->normalizeFillBlankText($answer['text'] ?? null);
+        if ($given === '') {
+            return false;
+        }
+
+        foreach ((array) ($content['answers'] ?? []) as $accepted) {
+            if ($this->normalizeFillBlankText($accepted) !== '' && $this->normalizeFillBlankText($accepted) === $given) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function normalizeFillBlankText(mixed $value): string
+    {
+        if (! is_string($value) && ! is_numeric($value)) {
+            return '';
+        }
+
+        return (string) preg_replace('/\s+/u', ' ', mb_strtolower(trim((string) $value)));
     }
 
     /**

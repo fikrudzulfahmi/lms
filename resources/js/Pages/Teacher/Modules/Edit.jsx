@@ -14,6 +14,33 @@ const PREVIEW_MODES = [
 
 function defaultContent(type) {
     switch (type) {
+        case 'section_heading':
+            return { title: 'Bagian baru', body: '' };
+        case 'materi_richtext':
+            return {
+                title: '',
+                body: 'Tulis penjelasan materi di sini.\n\n- Poin pertama\n- Poin kedua',
+            };
+        case 'materi_video':
+            return {
+                title: '',
+                source: 'youtube',
+                url: 'https://www.youtube.com/watch?v=aqz-KE-bpKQ',
+                caption: '',
+            };
+        case 'materi_file':
+            return {
+                title: '',
+                files: [
+                    {
+                        name: 'Contoh berkas.pdf',
+                        url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+                        size: 13264,
+                    },
+                ],
+            };
+        case 'materi_embed':
+            return { title: '', url: 'https://id.wikipedia.org', embed: false, caption: '' };
         case 'materi_teks':
             return { title: 'Materi baru', body: 'Tulis penjelasan materi di sini.' };
         case 'materi_accordion':
@@ -38,6 +65,18 @@ function defaultContent(type) {
                     { text: 'Opsi A', correct: true },
                     { text: 'Opsi B', correct: false },
                 ],
+                explanation: '',
+            };
+        case 'soal_truefalse':
+            return {
+                question: 'Tulis pernyataan untuk dinilai benar atau salah...',
+                answer: true,
+                explanation: '',
+            };
+        case 'soal_fillblank':
+            return {
+                question: 'Ibu kota Indonesia adalah ___.',
+                answers: ['Jakarta'],
                 explanation: '',
             };
         case 'soal_sequencing':
@@ -820,6 +859,7 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
                                     onMove={moveBlock}
                                     onSlidesImported={importSlidesToBlocks}
                                     uploadUrl={urls.slides}
+                                    assetUploadUrl={urls.upload}
                                     csrfToken={csrfToken}
                                 />
                             </div>

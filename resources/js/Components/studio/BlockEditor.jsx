@@ -1,7 +1,51 @@
-import { useState } from 'react';
-import { Button, Field, inputClass } from '@/Components/ui';
+import { useRef, useState } from 'react';
+import { Button, Field, inputClass, selectClass } from '@/Components/ui';
 import { BLOCK_LABELS } from '@/Components/DynamicBlockRenderer';
 import PdfSlideImporter from '@/Components/studio/PdfSlideImporter';
+
+const NEW_TYPES = [
+    'section_heading',
+    'materi_richtext',
+    'materi_video',
+    'materi_file',
+    'materi_embed',
+    'soal_truefalse',
+    'soal_fillblank',
+];
+
+function truncateText(value, max = 90) {
+    const text = String(value ?? '').trim();
+    return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function formatBytes(size) {
+    const bytes = Number(size) || 0;
+    if (bytes <= 0) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1).replace(/\.0$/, '')} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1).replace(/\.0$/, '')} MB`;
+}
+
+/** Ringkasan satu baris isi blok untuk kartu blok di kanvas editor. */
+function contentSummary(type, content) {
+    switch (type) {
+        case 'section_heading':
+            return truncateText(content.title);
+        case 'materi_richtext':
+            return truncateText(String(content.body ?? '').replace(/[*#[\]()]/g, '').split('\n')[0]);
+        case 'materi_video':
+            return truncateText(content.url);
+        case 'materi_file':
+            return `${(content.files ?? []).length} berkas terlampir`;
+        case 'materi_embed':
+            return truncateText(content.url);
+        case 'soal_truefalse':
+        case 'soal_fillblank':
+            return truncateText(content.question);
+        default:
+            return '';
+    }
+}
 
 function IconButton({ label, onClick, disabled = false, children, danger = false }) {
     return (
@@ -40,6 +84,7 @@ export default function BlockEditor({
     onMove,
     onSlidesImported,
     uploadUrl,
+    assetUploadUrl,
     csrfToken,
     index,
     total,
@@ -49,6 +94,115 @@ export default function BlockEditor({
     const [slideSource, setSlideSource] = useState(
         content.url || (content.images ?? []).length > 0 ? 'manual' : 'pdf',
     );
+    const [uploading, setUploading] = useState(false);
+    const [uploadError, setUploadError] = useState(null);
+    const richTextRef = useRef(null);
+
+    async function uploadAsset(file) {
+        const form = new FormData();
+        form.append('file', file);
+
+        const response = await fetch(assetUploadUrl, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                Accept: 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRF-TOKEN': csrfToken ?? '',
+            },
+            body: form,
+        });
+
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            const firstError = payload?.errors ? Object.values(payload.errors).flat()[0] : null;
+            throw new Error(firstError || payload?.message || `Gagal mengunggah (${response.status}).`);
+        }
+
+        return payload;
+    }
+
+    async function handleVideoUpload(event) {
+        const file = event.target.files?.[0];
+        event.target.value = '';
+        if (!file) return;
+
+        setUploading(true);
+        setUploadError(null);
+
+        try {
+            const payload = await uploadAsset(file);
+            setContent({ url: payload.url, source: 'upload' });
+        } catch (error) {
+            setUploadError(error.message || 'Gagal mengunggah video.');
+        } finally {
+            setUploading(false);
+        }
+    }
+
+    async function handleFilesUpload(event) {
+        const files = [...(event.target.files ?? [])];
+        event.target.value = '';
+        if (files.length === 0) return;
+
+        setUploading(true);
+        setUploadError(null);
+
+        try {
+            const uploaded = [];
+            for (const file of files) {
+                const payload = await uploadAsset(file);
+                uploaded.push({ name: payload.name, url: payload.url, size: payload.size });
+            }
+            setContent({ files: [...(content.files ?? []), ...uploaded] });
+        } catch (error) {
+            setUploadError(error.message || 'Gagal mengunggah berkas.');
+        } finally {
+            setUploading(false);
+        }
+    }
+
+    /** Sisipkan markup markdown ringan di posisi kursor/seleksi textarea Teks Kaya. */
+    function wrapRichSelection(before, after = before) {
+        const element = richTextRef.current;
+        const value = content.body ?? '';
+
+        if (!element) {
+            setContent({ body: `${value}${before}teks${after}` });
+            return;
+        }
+
+        const start = element.selectionStart ?? value.length;
+        const end = element.selectionEnd ?? value.length;
+        const selected = value.slice(start, end) || 'teks';
+        const next = value.slice(0, start) + before + selected + after + value.slice(end);
+        setContent({ body: next });
+
+        requestAnimationFrame(() => {
+            element.focus();
+            element.setSelectionRange(start + before.length, start + before.length + selected.length);
+        });
+    }
+
+    function insertRichList() {
+        const element = richTextRef.current;
+        const value = content.body ?? '';
+
+        if (!element || element.selectionStart === element.selectionEnd) {
+            setContent({ body: `${value}${value && !value.endsWith('\n') ? '\n' : ''}- Poin baru` });
+            return;
+        }
+
+        const start = element.selectionStart;
+        const end = element.selectionEnd;
+        const selected = value.slice(start, end);
+        const listed = selected
+            .split('\n')
+            .map((line) => (line.trim() ? `- ${line.replace(/^-\s*/, '')}` : line))
+            .join('\n');
+        setContent({ body: value.slice(0, start) + listed + value.slice(end) });
+    }
 
     const setContent = (patch) => onChange({ content: { ...content, ...patch } });
     const setArrayItem = (key, itemIndex, patch) => {
@@ -108,6 +262,264 @@ export default function BlockEditor({
             </div>
 
             <div className="space-y-3 px-4 py-4">
+                {NEW_TYPES.includes(type) && contentSummary(type, content) && (
+                    <p className="truncate rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
+                        <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-400">
+                            Ringkasan ·{' '}
+                        </span>
+                        {contentSummary(type, content)}
+                    </p>
+                )}
+
+                {uploadError && (
+                    <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                        {uploadError}
+                    </p>
+                )}
+
+                {type === 'section_heading' && (
+                    <>
+                        <Field label="Judul bagian">
+                            <input
+                                value={content.title ?? ''}
+                                onChange={(event) => setContent({ title: event.target.value })}
+                                className={inputClass}
+                                placeholder="Contoh: Pengenalan Sistem PGM-FI"
+                            />
+                        </Field>
+                        <Field label="Deskripsi singkat (opsional)">
+                            <textarea
+                                rows={2}
+                                value={content.body ?? ''}
+                                onChange={(event) => setContent({ body: event.target.value })}
+                                className={inputClass}
+                                placeholder="Satu-dua kalimat pembuka bagian ini."
+                            />
+                        </Field>
+                    </>
+                )}
+
+                {type === 'materi_richtext' && (
+                    <>
+                        <Field label="Judul (opsional)">
+                            <input
+                                value={content.title ?? ''}
+                                onChange={(event) => setContent({ title: event.target.value })}
+                                className={inputClass}
+                                placeholder="Judul teks materi"
+                            />
+                        </Field>
+                        <Field
+                            label="Isi materi"
+                            hint="Format ringan: **tebal**, *miring*, baris diawali - untuk daftar, 1. untuk daftar bernomor, [label](https://...) untuk tautan. Baris kosong = paragraf baru."
+                        >
+                            <div className="mb-1.5 flex flex-wrap gap-1.5">
+                                {[
+                                    { label: 'B Tebal', action: () => wrapRichSelection('**') },
+                                    { label: 'I Miring', action: () => wrapRichSelection('*') },
+                                    { label: '• Daftar', action: insertRichList },
+                                    { label: '🔗 Tautan', action: () => wrapRichSelection('[', '](https://)') },
+                                ].map((tool) => (
+                                    <button
+                                        key={tool.label}
+                                        type="button"
+                                        onClick={tool.action}
+                                        className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium text-zinc-600 transition-colors hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
+                                    >
+                                        {tool.label}
+                                    </button>
+                                ))}
+                            </div>
+                            <textarea
+                                ref={richTextRef}
+                                rows={10}
+                                value={content.body ?? ''}
+                                onChange={(event) => setContent({ body: event.target.value })}
+                                className={inputClass}
+                                placeholder={'Tulis materi...\n\nContoh: **istilah penting**, *penekanan*, daftar:\n- poin satu\n- poin dua'}
+                            />
+                        </Field>
+                    </>
+                )}
+
+                {type === 'materi_video' && (
+                    <>
+                        <Field label="Judul (opsional)">
+                            <input
+                                value={content.title ?? ''}
+                                onChange={(event) => setContent({ title: event.target.value })}
+                                className={inputClass}
+                                placeholder="Judul video"
+                            />
+                        </Field>
+                        <Field label="Sumber video">
+                            <select
+                                value={content.source ?? 'youtube'}
+                                onChange={(event) => setContent({ source: event.target.value })}
+                                className={selectClass}
+                            >
+                                <option value="youtube">YouTube</option>
+                                <option value="url">Tautan berkas video</option>
+                                <option value="upload">Unggah berkas</option>
+                            </select>
+                        </Field>
+                        {(content.source ?? 'youtube') !== 'upload' && (
+                            <Field
+                                label="URL video"
+                                hint={
+                                    (content.source ?? 'youtube') === 'youtube'
+                                        ? 'Tempel tautan YouTube (watch, youtu.be, shorts, atau embed).'
+                                        : 'Tautan langsung ke berkas video (mp4/webm) atau path /storage/...'
+                                }
+                            >
+                                <input
+                                    value={content.url ?? ''}
+                                    onChange={(event) => setContent({ url: event.target.value })}
+                                    className={inputClass}
+                                    placeholder="https://www.youtube.com/watch?v=..."
+                                />
+                            </Field>
+                        )}
+                        {(content.source ?? 'youtube') === 'upload' && (
+                            <Field label="Berkas video" hint="MP4/WebM/MOV, maksimal 50 MB.">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <label
+                                        className={`rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 ${
+                                            uploading || !assetUploadUrl
+                                                ? 'cursor-not-allowed opacity-50'
+                                                : 'cursor-pointer'
+                                        }`}
+                                    >
+                                        {uploading ? 'Mengunggah...' : 'Pilih berkas video'}
+                                        <input
+                                            type="file"
+                                            accept="video/*,.mp4,.webm,.mov"
+                                            className="hidden"
+                                            disabled={uploading || !assetUploadUrl}
+                                            onChange={handleVideoUpload}
+                                        />
+                                    </label>
+                                    {content.url && (
+                                        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-zinc-500">
+                                            {content.url.split('/').pop()}
+                                        </span>
+                                    )}
+                                </div>
+                            </Field>
+                        )}
+                        <Field label="Keterangan (opsional)">
+                            <input
+                                value={content.caption ?? ''}
+                                onChange={(event) => setContent({ caption: event.target.value })}
+                                className={inputClass}
+                                placeholder="Keterangan singkat di bawah video"
+                            />
+                        </Field>
+                    </>
+                )}
+
+                {type === 'materi_file' && (
+                    <>
+                        <Field label="Judul (opsional)">
+                            <input
+                                value={content.title ?? ''}
+                                onChange={(event) => setContent({ title: event.target.value })}
+                                className={inputClass}
+                                placeholder="Contoh: Berkas pendukung praktik"
+                            />
+                        </Field>
+                        <div className="space-y-2">
+                            {(content.files ?? []).map((file, fileIndex) => (
+                                <div
+                                    key={`${file.url}-${fileIndex}`}
+                                    className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50/60 px-3 py-2.5"
+                                >
+                                    <span className="min-w-0 flex-1">
+                                        <span className="block truncate text-sm font-medium text-zinc-800">
+                                            {file.name || 'Berkas'}
+                                        </span>
+                                        {formatBytes(file.size) && (
+                                            <span className="font-mono text-[11px] text-zinc-400">
+                                                {formatBytes(file.size)}
+                                            </span>
+                                        )}
+                                    </span>
+                                    <IconButton
+                                        label="Hapus berkas"
+                                        onClick={() => removeItem('files', fileIndex)}
+                                        danger
+                                    >
+                                        ✕
+                                    </IconButton>
+                                </div>
+                            ))}
+                            {(content.files ?? []).length === 0 && (
+                                <p className="rounded-lg border border-dashed border-zinc-200 px-3 py-4 text-center text-xs text-zinc-400">
+                                    Belum ada berkas. Unggah minimal satu berkas.
+                                </p>
+                            )}
+                        </div>
+                        <label
+                            className={`inline-block rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 ${
+                                uploading || !assetUploadUrl ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                            }`}
+                        >
+                            {uploading ? 'Mengunggah...' : 'Unggah berkas'}
+                            <input
+                                type="file"
+                                multiple
+                                className="hidden"
+                                disabled={uploading || !assetUploadUrl}
+                                onChange={handleFilesUpload}
+                            />
+                        </label>
+                    </>
+                )}
+
+                {type === 'materi_embed' && (
+                    <>
+                        <Field label="Judul (opsional)">
+                            <input
+                                value={content.title ?? ''}
+                                onChange={(event) => setContent({ title: event.target.value })}
+                                className={inputClass}
+                                placeholder="Judul tautan"
+                            />
+                        </Field>
+                        <Field label="URL" hint="Diawali http:// atau https://.">
+                            <input
+                                value={content.url ?? ''}
+                                onChange={(event) => setContent({ url: event.target.value })}
+                                className={inputClass}
+                                placeholder="https://..."
+                            />
+                        </Field>
+                        <label className="flex items-start gap-2 text-sm text-zinc-700">
+                            <input
+                                type="checkbox"
+                                checked={Boolean(content.embed)}
+                                onChange={(event) => setContent({ embed: event.target.checked })}
+                                className="mt-0.5 accent-emerald-600"
+                            />
+                            <span>
+                                Tampilkan tersemat di halaman (embed)
+                                <span className="block text-xs text-zinc-400">
+                                    Sebagian situs menolak disematkan; tautan &quot;Buka di tab baru&quot; tetap
+                                    selalu disediakan untuk siswa.
+                                </span>
+                            </span>
+                        </label>
+                        <Field label="Keterangan (opsional)">
+                            <input
+                                value={content.caption ?? ''}
+                                onChange={(event) => setContent({ caption: event.target.value })}
+                                className={inputClass}
+                                placeholder="Keterangan singkat"
+                            />
+                        </Field>
+                    </>
+                )}
+
                 {type === 'materi_teks' && (
                     <>
                         <Field label="Judul materi">
@@ -355,6 +767,126 @@ export default function BlockEditor({
                                 + Tambah opsi
                             </Button>
                         </div>
+                        <Field label="Pembahasan (opsional)">
+                            <textarea
+                                rows={2}
+                                value={content.explanation ?? ''}
+                                onChange={(event) => setContent({ explanation: event.target.value })}
+                                className={inputClass}
+                                placeholder="Tampil setelah siswa menjawab."
+                            />
+                        </Field>
+                    </>
+                )}
+
+                {type === 'soal_truefalse' && (
+                    <>
+                        <Field label="Pernyataan">
+                            <textarea
+                                rows={3}
+                                value={content.question ?? ''}
+                                onChange={(event) => setContent({ question: event.target.value })}
+                                className={inputClass}
+                                placeholder="Tulis pernyataan yang dinilai benar atau salah..."
+                            />
+                        </Field>
+                        <Field label="Kunci jawaban">
+                            <div className="grid grid-cols-2 gap-2">
+                                {[
+                                    { value: true, label: '✓ Benar' },
+                                    { value: false, label: '✕ Salah' },
+                                ].map((option) => (
+                                    <label
+                                        key={String(option.value)}
+                                        className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
+                                            content.answer === option.value
+                                                ? 'border-emerald-400 bg-emerald-50 text-emerald-800'
+                                                : 'border-zinc-200 bg-white text-zinc-600 hover:border-emerald-300'
+                                        }`}
+                                    >
+                                        <input
+                                            type="radio"
+                                            name={`truefalse-${block.id}`}
+                                            checked={content.answer === option.value}
+                                            onChange={() => setContent({ answer: option.value })}
+                                            className="accent-emerald-600"
+                                        />
+                                        {option.label}
+                                    </label>
+                                ))}
+                            </div>
+                        </Field>
+                        <Field label="Pembahasan (opsional)">
+                            <textarea
+                                rows={2}
+                                value={content.explanation ?? ''}
+                                onChange={(event) => setContent({ explanation: event.target.value })}
+                                className={inputClass}
+                                placeholder="Tampil setelah siswa menjawab."
+                            />
+                        </Field>
+                    </>
+                )}
+
+                {type === 'soal_fillblank' && (
+                    <>
+                        <Field
+                            label="Soal"
+                            hint="Tulis ___ (tiga garis bawah) untuk menandai titik isian pada soal."
+                        >
+                            <textarea
+                                rows={3}
+                                value={content.question ?? ''}
+                                onChange={(event) => setContent({ question: event.target.value })}
+                                className={inputClass}
+                                placeholder="Contoh: Alat ukur tekanan bahan bakar disebut ___."
+                            />
+                        </Field>
+                        <Field
+                            label="Kunci jawaban yang diterima"
+                            hint="Pemeriksaan tidak peka huruf besar/kecil dan spasi berlebih diabaikan. Tambahkan variasi ejaan yang masih diterima."
+                        >
+                            <div className="space-y-2">
+                                {(content.answers ?? []).map((answer, answerIndex) => (
+                                    <div key={answerIndex} className="flex items-start gap-2">
+                                        <input
+                                            value={answer}
+                                            onChange={(event) => {
+                                                const next = [...(content.answers ?? [])];
+                                                next[answerIndex] = event.target.value;
+                                                setContent({ answers: next });
+                                            }}
+                                            className={inputClass}
+                                            placeholder={`Kunci ${answerIndex + 1}`}
+                                        />
+                                        <IconButton
+                                            label="Hapus kunci"
+                                            onClick={() =>
+                                                setContent({
+                                                    answers: (content.answers ?? []).filter(
+                                                        (_, position) => position !== answerIndex,
+                                                    ),
+                                                })
+                                            }
+                                            disabled={(content.answers ?? []).length <= 1}
+                                            danger
+                                        >
+                                            ✕
+                                        </IconButton>
+                                    </div>
+                                ))}
+                            </div>
+                        </Field>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                                setContent({ answers: [...(content.answers ?? []), ''] })
+                            }
+                            disabled={(content.answers ?? []).length >= 10}
+                        >
+                            + Tambah kunci
+                        </Button>
                         <Field label="Pembahasan (opsional)">
                             <textarea
                                 rows={2}
