@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\AcademicYear;
+use App\Models\Classroom;
 use App\Models\ClassroomStudent;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
@@ -14,6 +15,8 @@ use Symfony\Component\HttpFoundation\File\UploadedFile;
 
 class ClassroomStudentService
 {
+    public function __construct(protected IndukApiService $induk) {}
+
     /**
      * Students belonging to a classroom within the active academic year.
      */
@@ -189,6 +192,132 @@ class ClassroomStudentService
         fclose($handle);
 
         return $result;
+    }
+
+    /**
+     * Pull students of one classroom from the master-data API and place them.
+     *
+     * Students are matched by NISN; the NISN doubles as the login username on
+     * first import so every synced student can sign in without manual setup.
+     *
+     * @return array{imported:int, updated:int, skipped:int, placed:int, fetched:int, errors:array<int,string>}
+     */
+    public function importFromInduk(string $kelas, ?int $classroomId = null): array
+    {
+        $students = $this->induk->students($kelas);
+
+        return $this->upsertStudents($students, $classroomId);
+    }
+
+    /**
+     * Sync every classroom whose name matches a classroom in the LMS.
+     *
+     * @return array{classes:int, imported:int, updated:int, skipped:int, placed:int, fetched:int, errors:array<int,string>}
+     */
+    public function importAllMatchedFromInduk(): array
+    {
+        $total = ['classes' => 0, 'imported' => 0, 'updated' => 0, 'skipped' => 0, 'placed' => 0, 'fetched' => 0, 'errors' => []];
+
+        $lms = Classroom::query()->get()->keyBy(fn (Classroom $c) => self::normaliseName($c->name));
+
+        foreach ($this->induk->classrooms() as $row) {
+            $match = $lms->get(self::normaliseName($row['kelas']));
+
+            if ($match === null) {
+                continue;
+            }
+
+            $result = $this->importFromInduk($row['kelas'], $match->id);
+
+            $total['classes']++;
+            foreach (['imported', 'updated', 'skipped', 'placed', 'fetched'] as $key) {
+                $total[$key] += $result[$key];
+            }
+            foreach ($result['errors'] as $error) {
+                $total['errors'][] = $row['kelas'].': '.$error;
+            }
+        }
+
+        return $total;
+    }
+
+    /**
+     * @param  array<int, array{nisn:string, nama:string, kelas?:string}>  $students
+     * @return array{imported:int, updated:int, skipped:int, placed:int, fetched:int, errors:array<int,string>}
+     */
+    public function upsertStudents(array $students, ?int $classroomId = null): array
+    {
+        $result = ['imported' => 0, 'updated' => 0, 'skipped' => 0, 'placed' => 0, 'fetched' => count($students), 'errors' => []];
+
+        foreach ($students as $row) {
+            $name = trim((string) ($row['nama'] ?? ''));
+            $nisn = trim((string) ($row['nisn'] ?? ''));
+
+            if ($name === '' || $nisn === '') {
+                $result['skipped']++;
+                $result['errors'][] = 'Baris tanpa nama/NISN dilewati.';
+
+                continue;
+            }
+
+            $student = $this->findStudent($nisn, $nisn, '');
+
+            if ($student !== null) {
+                try {
+                    $student->update(array_filter([
+                        'name' => $name,
+                        'nisn' => $nisn,
+                    ], fn ($v) => $v !== ''));
+                } catch (QueryException $e) {
+                    $result['skipped']++;
+                    $result['errors'][] = "Siswa '$name' gagal diperbarui: bentrok data.";
+
+                    continue;
+                }
+
+                $result['updated']++;
+            } else {
+                try {
+                    $student = User::create([
+                        'name' => $name,
+                        'username' => $nisn,
+                        'email' => null,
+                        'nisn' => $nisn,
+                        'role' => User::ROLE_STUDENT,
+                        'password' => 'siswa123',
+                        'is_active' => true,
+                    ]);
+                } catch (QueryException $e) {
+                    $result['skipped']++;
+                    $result['errors'][] = "Siswa '$name' dilewati: username/NISN sudah dipakai.";
+
+                    continue;
+                }
+
+                $result['imported']++;
+            }
+
+            if ($classroomId !== null && $this->tryPlace($classroomId, $student->id)) {
+                $result['placed']++;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Compare classroom names that differ only by grade notation
+     * ("XI TSM 1" vs "11 TSM 1") or whitespace.
+     */
+    public static function normaliseName(string $name): string
+    {
+        $name = strtoupper(trim(preg_replace('/\s+/', ' ', $name)));
+
+        return (string) preg_replace_callback(
+            '/^(XII|XI|X)\b/',
+            fn (array $m) => (string) ['X' => 10, 'XI' => 11, 'XII' => 12][$m[1]],
+            $name,
+        );
     }
 
     /**

@@ -28,6 +28,12 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'induk' => [
+        'base' => env('INDUK_API_BASE', 'https://induk.smkislam1blitar.sch.id'),
+        'key' => env('INDUK_API_KEY'),
+        'timeout' => (int) env('INDUK_API_TIMEOUT', 15),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

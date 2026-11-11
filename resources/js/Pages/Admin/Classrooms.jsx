@@ -20,6 +20,7 @@ const TABS = [
     { key: 'jurusan', label: 'Jurusan' },
     { key: 'siswa', label: 'Penempatan Siswa' },
     { key: 'import', label: 'Import CSV' },
+    { key: 'induk', label: 'Data Induk' },
 ];
 
 export default function Classrooms({
@@ -161,6 +162,64 @@ export default function Classrooms({
         a.click();
         URL.revokeObjectURL(url);
     }
+
+    // ------------------------------------------------------------ data induk
+    const [indukClasses, setIndukClasses] = useState([]);
+    const [indukState, setIndukState] = useState({ loading: false, error: null, loaded: false });
+    const [indukQuery, setIndukQuery] = useState('');
+    const [indukOnlyMatched, setIndukOnlyMatched] = useState(false);
+    const syncForm = useForm({ kelas: '', classroom_id: '' });
+
+    async function loadIndukClasses() {
+        setIndukState({ loading: true, error: null, loaded: false });
+        try {
+            const res = await fetch('/admin/classrooms/induk/classes', {
+                headers: { Accept: 'application/json' },
+                credentials: 'same-origin',
+            });
+            const json = await res.json();
+            if (!res.ok || !json.ok) throw new Error(json.message || 'Gagal memuat kelas induk.');
+            setIndukClasses(json.classes ?? []);
+            setIndukState({ loading: false, error: null, loaded: true });
+        } catch (err) {
+            setIndukState({ loading: false, error: err.message, loaded: false });
+        }
+    }
+
+    const normaliseName = (name) =>
+        String(name)
+            .trim()
+            .replace(/\s+/g, ' ')
+            .toUpperCase()
+            .replace(/^(XII|XI|X)\b/, (m) => ({ X: 10, XI: 11, XII: 12 })[m]);
+
+    const matchedClassroomId = (kelas) => {
+        const target = normaliseName(kelas);
+        return classrooms.find((c) => normaliseName(c.name) === target)?.id ?? '';
+    };
+
+    function pickIndukClass(row) {
+        const matched = matchedClassroomId(row.kelas);
+        syncForm.setData({ kelas: row.kelas, classroom_id: matched ? String(matched) : '' });
+    }
+
+    function submitSync(e) {
+        e.preventDefault();
+        syncForm.post('/admin/classrooms/induk/sync', { preserveScroll: true });
+    }
+
+    function syncAllMatched() {
+        if (!confirm('Tarik siswa untuk semua kelas yang namanya cocok dengan data induk?')) return;
+        router.post('/admin/classrooms/induk/sync-all', {}, { preserveScroll: true });
+    }
+
+    const filteredInduk = useMemo(() => {
+        const term = indukQuery.trim().toLowerCase();
+        return indukClasses.filter((row) => {
+            if (indukOnlyMatched && !matchedClassroomId(row.kelas)) return false;
+            return !term || row.kelas.toLowerCase().includes(term);
+        });
+    }, [indukClasses, indukQuery, indukOnlyMatched]);
 
     // ---------------------------------------------------------------- filter
     function applyFilter(key, value) {
@@ -546,6 +605,179 @@ export default function Classrooms({
                         {(csv.template || 'name,username,email,nisn').trim()}
                     </div>
                 </Card>
+            )}
+
+            {tab === 'induk' && (
+                <div className="grid items-start gap-4 lg:grid-cols-2">
+                    <Card>
+                        <CardHeader
+                            title="Kelas di Data Induk"
+                            subtitle="Sumber: induk.smkislam1blitar.sch.id"
+                            actions={
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={loadIndukClasses}
+                                    disabled={indukState.loading}
+                                >
+                                    {indukState.loading
+                                        ? 'Memuat…'
+                                        : indukState.loaded
+                                          ? 'Muat Ulang'
+                                          : 'Muat Kelas'}
+                                </Button>
+                            }
+                        />
+
+                        {indukState.error && (
+                            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                                {indukState.error}
+                            </div>
+                        )}
+
+                        {!indukState.loaded && !indukState.error && (
+                            <EmptyState
+                                title="Belum dimuat"
+                                description="Klik Muat Kelas untuk mengambil daftar rombel beserta jumlah siswa aktif dari aplikasi data induk."
+                            />
+                        )}
+
+                        {indukState.loaded && (
+                            <>
+                                <input
+                                    className={inputClass}
+                                    placeholder="Cari kelas, mis. 10 DPIB"
+                                    value={indukQuery}
+                                    onChange={(e) => setIndukQuery(e.target.value)}
+                                />
+                                <label className="mt-2 flex items-center gap-2 text-xs text-zinc-600">
+                                    <input
+                                        type="checkbox"
+                                        className="h-3.5 w-3.5 rounded border-zinc-300 text-emerald-600"
+                                        checked={indukOnlyMatched}
+                                        onChange={(e) => setIndukOnlyMatched(e.target.checked)}
+                                    />
+                                    Hanya kelas yang sudah ada di LMS
+                                </label>
+                                <div className="mt-3 max-h-[26rem] overflow-y-auto rounded-xl border border-zinc-100">
+                                    <table className="w-full text-sm">
+                                        <thead className="sticky top-0 bg-zinc-50/95 backdrop-blur">
+                                            <tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-600">
+                                                <th className="px-3 py-2 font-semibold">Kelas</th>
+                                                <th className="px-3 py-2 text-right font-semibold">Siswa</th>
+                                                <th className="px-3 py-2 text-right font-semibold">LMS</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {filteredInduk.map((row) => {
+                                                const selected = syncForm.data.kelas === row.kelas;
+                                                const matched = matchedClassroomId(row.kelas);
+                                                return (
+                                                    <tr
+                                                        key={`${row.id}-${row.kelas}`}
+                                                        onClick={() => pickIndukClass(row)}
+                                                        className={
+                                                            'cursor-pointer border-b border-zinc-100 last:border-0 hover:bg-emerald-50/50 ' +
+                                                            (selected ? 'bg-emerald-50' : '')
+                                                        }
+                                                    >
+                                                        <td className="px-3 py-2.5 font-medium text-zinc-800">
+                                                            {row.kelas}
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-right tabular-nums text-zinc-600">
+                                                            {row.jumlah_siswa}
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-right">
+                                                            {matched ? (
+                                                                <Badge tone="emerald">cocok</Badge>
+                                                            ) : (
+                                                                <span className="text-xs text-zinc-400">—</span>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                    {filteredInduk.length === 0 && (
+                                        <p className="px-3 py-6 text-center text-sm text-zinc-500">
+                                            Tidak ada kelas yang cocok.
+                                        </p>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </Card>
+
+                    <Card>
+                        <CardHeader
+                            title="Tarik ke Kelas LMS"
+                            subtitle="Siswa dibuat/diperbarui berdasarkan NISN, lalu ditempatkan ke kelas terpilih."
+                        />
+
+                        <form onSubmit={submitSync} className="space-y-3">
+                            <Field
+                                label="Kelas Data Induk"
+                                error={syncForm.errors.kelas}
+                                hint={
+                                    syncForm.data.kelas
+                                        ? undefined
+                                        : 'Pilih baris di tabel sebelah kiri.'
+                                }
+                            >
+                                <input
+                                    className={inputClass}
+                                    value={syncForm.data.kelas}
+                                    placeholder="10 DPIB 1"
+                                    onChange={(e) => syncForm.setData('kelas', e.target.value)}
+                                />
+                            </Field>
+
+                            <Field label="Kelas LMS" error={syncForm.errors.classroom_id}>
+                                <select
+                                    className={selectClass}
+                                    value={syncForm.data.classroom_id}
+                                    onChange={(e) =>
+                                        syncForm.setData('classroom_id', e.target.value)
+                                    }
+                                >
+                                    <option value="">Pilih kelas tujuan</option>
+                                    {classrooms.map((c) => (
+                                        <option key={c.id} value={c.id}>
+                                            {c.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </Field>
+
+                            <Button
+                                type="submit"
+                                disabled={
+                                    syncForm.processing ||
+                                    !syncForm.data.kelas ||
+                                    !syncForm.data.classroom_id
+                                }
+                                className="w-full"
+                            >
+                                {syncForm.processing ? 'Menarik data…' : 'Tarik Siswa'}
+                            </Button>
+                        </form>
+
+                        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800">
+                            Butuh banyak kelas sekaligus? Tombol di bawah menarik semua kelas yang
+                            namanya persis sama dengan kelas di LMS.
+                        </div>
+
+                        <Button
+                            variant="outline"
+                            onClick={syncAllMatched}
+                            className="mt-3 w-full"
+                            disabled={classrooms.length === 0}
+                        >
+                            Tarik Semua Kelas yang Cocok
+                        </Button>
+                    </Card>
+                </div>
             )}
 
             <Modal

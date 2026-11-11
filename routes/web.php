@@ -58,6 +58,9 @@ Route::middleware('auth')->group(function () {
         Route::get('/classrooms', [AdminController::class, 'classrooms'])->name('classrooms.index');
         Route::post('/classrooms', [AdminController::class, 'storeClassroom'])->name('classrooms.store');
         Route::post('/classrooms/import-students', [AdminController::class, 'importStudents'])->name('classrooms.import');
+        Route::get('/classrooms/induk/classes', [AdminController::class, 'indukClassrooms'])->name('classrooms.induk.classes');
+        Route::post('/classrooms/induk/sync', [AdminController::class, 'syncInduk'])->name('classrooms.induk.sync');
+        Route::post('/classrooms/induk/sync-all', [AdminController::class, 'syncIndukAll'])->name('classrooms.induk.sync-all');
         Route::put('/classrooms/{classroom}', [AdminController::class, 'updateClassroom'])->name('classrooms.update');
         Route::delete('/classrooms/{classroom}', [AdminController::class, 'destroyClassroom'])->name('classrooms.destroy');
         Route::post('/classrooms/{classroom}/students', [AdminController::class, 'placeStudent'])->name('classrooms.students.place');

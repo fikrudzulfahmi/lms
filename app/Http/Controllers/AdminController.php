@@ -16,6 +16,8 @@ use App\Models\Subject;
 use App\Models\TeachingAssignment;
 use App\Models\User;
 use App\Services\ClassroomStudentService;
+use App\Services\IndukApiService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -356,6 +358,74 @@ class AdminController
         $service->unplace($classroom->id, $studentId);
 
         return back()->with('success', 'Siswa dikeluarkan dari '.$classroom->name.'.');
+    }
+
+    /**
+     * JSON: classrooms available in the master-data app (for the sync dropdown).
+     */
+    public function indukClassrooms(IndukApiService $induk): JsonResponse
+    {
+        try {
+            return response()->json([
+                'ok' => true,
+                'classes' => $induk->classrooms(),
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json(['ok' => false, 'message' => $e->getMessage()], 502);
+        }
+    }
+
+    /**
+     * Pull the roster of one master-data classroom into a LMS classroom.
+     */
+    public function syncInduk(Request $request, ClassroomStudentService $service): RedirectResponse
+    {
+        $data = $request->validate([
+            'kelas' => ['required', 'string', 'max:100'],
+            'classroom_id' => ['required', 'integer', 'exists:classrooms,id'],
+        ]);
+
+        try {
+            $result = $service->importFromInduk($data['kelas'], (int) $data['classroom_id']);
+        } catch (\Throwable $e) {
+            return back()->with('error', 'Sinkron data induk gagal: '.$e->getMessage());
+        }
+
+        return back()->with('success', sprintf(
+            'Sinkron %s: %d siswa dibaca, %d baru, %d diperbarui, %d ditempatkan, %d dilewati.',
+            $data['kelas'],
+            $result['fetched'],
+            $result['imported'],
+            $result['updated'],
+            $result['placed'],
+            $result['skipped'],
+        ));
+    }
+
+    /**
+     * Sync every master-data classroom whose name already exists in the LMS.
+     */
+    public function syncIndukAll(ClassroomStudentService $service): RedirectResponse
+    {
+        try {
+            $result = $service->importAllMatchedFromInduk();
+        } catch (\Throwable $e) {
+            return back()->with('error', 'Sinkron data induk gagal: '.$e->getMessage());
+        }
+
+        if ($result['classes'] === 0) {
+            return back()->with('error', 'Tidak ada kelas LMS yang namanya cocok dengan data induk. Buat kelas dulu atau sinkron per kelas.');
+        }
+
+        return back()->with('success', sprintf(
+            'Sinkron %d kelas: %d siswa dibaca, %d baru, %d diperbarui, %d ditempatkan, %d dilewati.',
+            $result['classes'],
+            $result['fetched'],
+            $result['imported'],
+            $result['updated'],
+            $result['placed'],
+            $result['skipped'],
+        ));
     }
 
     public function importStudents(Request $request, ClassroomStudentService $service): RedirectResponse
