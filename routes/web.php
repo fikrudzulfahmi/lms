@@ -68,6 +68,14 @@ Route::middleware('auth')->group(function () {
         Route::post('/classrooms/{classroom}/students', [AdminController::class, 'placeStudent'])->name('classrooms.students.place');
         Route::delete('/classrooms/{classroom}/students/{studentId}', [AdminController::class, 'unplaceStudent'])->name('classrooms.students.unplace');
 
+        // Kelola guru (akun pengguna role guru)
+        Route::get('/teachers', [AdminController::class, 'teachers'])->name('teachers.index');
+        Route::post('/teachers', [AdminController::class, 'storeTeacher'])->name('teachers.store');
+        Route::put('/teachers/{user}', [AdminController::class, 'updateTeacher'])->name('teachers.update');
+        Route::post('/teachers/{user}/toggle-active', [AdminController::class, 'toggleTeacherActive'])->name('teachers.toggle-active');
+        Route::post('/teachers/{user}/reset-password', [AdminController::class, 'resetTeacherPassword'])->name('teachers.reset-password');
+        Route::delete('/teachers/{user}', [AdminController::class, 'destroyTeacher'])->name('teachers.destroy');
+
         // Ploting mengajar
         Route::get('/ploting', [AdminController::class, 'ploting'])->name('ploting.index');
         Route::post('/ploting', [AdminController::class, 'storePloting'])->name('ploting.store');
