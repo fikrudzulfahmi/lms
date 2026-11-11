@@ -115,6 +115,33 @@ class StudioPhaseTwoBlocksTest extends TestCase
         $this->assertSame(2, $this->module->blocks()->count());
     }
 
+    public function test_teacher_can_create_interactive_video_block_with_studio_default_content(): void
+    {
+        // Kontrak dengan defaultContent() di Edit.jsx: payload bawaan yang
+        // dikirim Studio saat guru mengeklik "Video Interaktif" harus lolos
+        // validasi (url contoh terisi — url kosong pernah ditolak backend
+        // dengan "The content.url field is required.").
+        $response = $this->actingAs($this->teacher)->postJson($this->blocksUrl(), [
+            'block_type' => 'materi_video_interaktif',
+            'points' => 10,
+            'content' => [
+                'title' => '',
+                'url' => 'https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+                'checkpoints' => [
+                    [
+                        'at' => 30,
+                        'question' => 'Tulis pertanyaan checkpoint...',
+                        'options' => [['text' => 'Opsi A'], ['text' => 'Opsi B']],
+                        'correct_index' => 0,
+                    ],
+                ],
+            ],
+        ]);
+
+        $response->assertCreated();
+        $response->assertJsonPath('block.block_type', 'materi_video_interaktif');
+    }
+
     public function test_validation_rejects_invalid_phase_two_blocks(): void
     {
         $tooFewSpots = $this->hotspotContent();

@@ -112,7 +112,10 @@ function defaultContent(type) {
         case 'materi_video_interaktif':
             return {
                 title: '',
-                url: '',
+                // URL contoh wajib terisi: validasi backend menolak url kosong
+                // (content.url required) saat blok pertama kali dibuat, sama
+                // seperti blok video/file/hotspot yang memakai contoh bawaan.
+                url: 'https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
                 checkpoints: [
                     {
                         at: 30,
