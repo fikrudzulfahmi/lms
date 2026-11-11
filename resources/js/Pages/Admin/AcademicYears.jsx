@@ -109,17 +109,17 @@ export default function AcademicYears({ years = [] }) {
                         description="Tambahkan TP pertama lewat form di atas."
                     />
                 ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
+                    <div className="overflow-x-auto rounded-xl border border-zinc-100">
+                        <table className="w-full min-w-[700px] text-sm">
                             <thead>
-                                <tr className="border-b border-zinc-200 text-left text-xs text-zinc-500">
-                                    <th className="pb-2 font-medium">Tahun</th>
-                                    <th className="pb-2 font-medium">Semester</th>
-                                    <th className="pb-2 text-right font-medium">Ploting</th>
-                                    <th className="pb-2 text-right font-medium">Siswa</th>
-                                    <th className="pb-2 font-medium">Status</th>
-                                    <th className="pb-2 text-right font-medium">Aktif</th>
-                                    <th className="pb-2 text-right font-medium">Aksi</th>
+                                <tr className="border-b border-zinc-200 bg-zinc-50/70 text-left text-[11px] uppercase tracking-wide text-zinc-600">
+                                    <th className="px-3 py-2.5 font-semibold">Tahun</th>
+                                    <th className="px-3 py-2.5 font-semibold">Semester</th>
+                                    <th className="px-3 py-2.5 text-right font-semibold">Ploting</th>
+                                    <th className="px-3 py-2.5 text-right font-semibold">Siswa</th>
+                                    <th className="px-3 py-2.5 font-semibold">Status</th>
+                                    <th className="px-3 py-2.5 text-center font-semibold">Aktif</th>
+                                    <th className="px-3 py-2.5 text-right font-semibold">Aksi</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -131,23 +131,23 @@ export default function AcademicYears({ years = [] }) {
                                             (y.is_active ? 'bg-emerald-50/40' : '')
                                         }
                                     >
-                                        <td className="py-2.5 font-mono text-zinc-900">{y.name}</td>
-                                        <td className="py-2.5 capitalize text-zinc-600">{y.semester}</td>
-                                        <td className="py-2.5 text-right tabular-nums text-zinc-600">
+                                        <td className="px-3 py-3 font-mono text-zinc-900">{y.name}</td>
+                                        <td className="px-3 py-3 capitalize text-zinc-600">{y.semester}</td>
+                                        <td className="px-3 py-3 text-right tabular-nums text-zinc-600">
                                             {y.teaching_assignment_count}
                                         </td>
-                                        <td className="py-2.5 text-right tabular-nums text-zinc-600">
+                                        <td className="px-3 py-3 text-right tabular-nums text-zinc-600">
                                             {y.student_count}
                                         </td>
-                                        <td className="py-2.5">
+                                        <td className="px-3 py-3">
                                             {y.is_active ? (
                                                 <Badge tone="emerald">AKTIF</Badge>
                                             ) : (
                                                 <Badge>Nonaktif</Badge>
                                             )}
                                         </td>
-                                        <td className="py-2.5">
-                                            <div className="flex justify-end">
+                                        <td className="px-3 py-3">
+                                            <div className="flex justify-center">
                                                 <Toggle
                                                     on={y.is_active}
                                                     label={`Aktifkan ${y.name} ${y.semester}`}
@@ -156,7 +156,7 @@ export default function AcademicYears({ years = [] }) {
                                                 />
                                             </div>
                                         </td>
-                                        <td className="py-2.5 text-right">
+                                        <td className="px-3 py-3 text-right">
                                             <Button
                                                 variant="danger"
                                                 size="sm"
