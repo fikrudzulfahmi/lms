@@ -6,12 +6,14 @@ use App\Http\Controllers\Internal\LiveSessionValidationController;
 use App\Http\Controllers\Student\GradeController;
 use App\Http\Controllers\Student\HomeController as StudentHomeController;
 use App\Http\Controllers\Student\LiveController;
+use App\Http\Controllers\SubjectController;
 use App\Http\Controllers\Teacher\AiCurriculumController;
 use App\Http\Controllers\Teacher\GradebookController;
 use App\Http\Controllers\Teacher\LiveSessionController;
 use App\Http\Controllers\Teacher\ModuleBlockController;
 use App\Http\Controllers\Teacher\ModuleController;
 use App\Http\Controllers\Teacher\ModuleSlideController;
+use App\Http\Controllers\Teacher\ObjectiveController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -71,11 +73,13 @@ Route::middleware('auth')->group(function () {
         Route::post('/ploting', [AdminController::class, 'storePloting'])->name('ploting.store');
         Route::delete('/ploting/{assignment}', [AdminController::class, 'destroyPloting'])->name('ploting.destroy');
 
-        // Bank TP
-        Route::get('/objectives', [AdminController::class, 'objectives'])->name('objectives.index');
-        Route::post('/objectives', [AdminController::class, 'storeObjective'])->name('objectives.store');
-        Route::put('/objectives/{objective}', [AdminController::class, 'updateObjective'])->name('objectives.update');
-        Route::delete('/objectives/{objective}', [AdminController::class, 'destroyObjective'])->name('objectives.destroy');
+        // Mata pelajaran
+        Route::get('/subjects', [SubjectController::class, 'index'])->name('subjects.index');
+        Route::post('/subjects', [SubjectController::class, 'store'])->name('subjects.store');
+        Route::put('/subjects/{subject}', [SubjectController::class, 'update'])->name('subjects.update');
+        Route::delete('/subjects/{subject}', [SubjectController::class, 'destroy'])->name('subjects.destroy');
+
+        // Bank TP dipindah ke area guru (lihat grup teacher di bawah)
     });
 
     Route::prefix('teacher')->name('teacher.')->middleware('role:teacher,admin')->group(function () {
@@ -95,6 +99,12 @@ Route::middleware('auth')->group(function () {
         Route::patch('/modules/{module}/blocks/reorder', [ModuleBlockController::class, 'reorder'])->name('modules.blocks.reorder');
         Route::patch('/modules/{module}/blocks/{block}', [ModuleBlockController::class, 'update'])->name('modules.blocks.update');
         Route::delete('/modules/{module}/blocks/{block}', [ModuleBlockController::class, 'destroy'])->name('modules.blocks.destroy');
+
+        // Bank TP (guru hanya mapel yang diampu)
+        Route::get('/objectives', [ObjectiveController::class, 'index'])->name('objectives.index');
+        Route::post('/objectives', [ObjectiveController::class, 'store'])->name('objectives.store');
+        Route::put('/objectives/{objective}', [ObjectiveController::class, 'update'])->name('objectives.update');
+        Route::delete('/objectives/{objective}', [ObjectiveController::class, 'destroy'])->name('objectives.destroy');
 
         // Buku Nilai (Gradebook) & ekspor CSV
         Route::get('/gradebook', [GradebookController::class, 'index'])->name('gradebook.index');

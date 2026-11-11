@@ -4,10 +4,12 @@ const icons = {
     modules: 'M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25',
     gradebook: 'M3.75 6.75A2.25 2.25 0 0 1 6 4.5h9.75L20.25 9v10.5a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6.75Zm9.75-2.25V9h4.5M8.25 13.5h7.5m-7.5 3.75h5.25',
     admin: 'M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25',
+    objectives: 'M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
 };
 
 const navItems = [
     { label: 'Modul Ajar', href: '/teacher/modules', exact: false, icon: 'modules' },
+    { label: 'Bank TP', href: '/teacher/objectives', exact: false, icon: 'objectives' },
     { label: 'Buku Nilai', href: '/teacher/gradebook', exact: false, icon: 'gradebook' },
 ];
 

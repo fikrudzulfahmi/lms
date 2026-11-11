@@ -249,33 +249,75 @@ class AdminPanelTest extends TestCase
         $this->assertSame(0, TeachingAssignment::count());
     }
 
-    public function test_objective_bank_rejects_duplicate_code_per_subject_and_grade(): void
+    public function test_subject_crud_and_delete_guard(): void
     {
         $admin = $this->admin();
-        $subject = Subject::factory()->create();
+        $department = Department::factory()->create(['code' => 'TSM', 'name' => 'Teknik Sepeda Motor']);
 
-        $payload = [
-            'subject_id' => $subject->id,
-            'grade_level' => 'XI',
-            'code' => 'TP-1.2',
-            'description' => 'Mendiagnosis gangguan sensor.',
-        ];
-
-        $this->actingAs($admin)->post('/admin/objectives', $payload)->assertRedirect();
-        $this->actingAs($admin)->post('/admin/objectives', $payload)->assertSessionHasErrors('code');
-
-        $this->assertSame(1, LearningObjective::count());
-
-        $objective = LearningObjective::firstOrFail();
-
-        $this->actingAs($admin)->put("/admin/objectives/{$objective->id}", [
-            'subject_id' => $subject->id,
-            'grade_level' => 'XII',
-            'code' => 'TP-1.2',
-            'description' => 'Diperbarui.',
+        $this->actingAs($admin)->post('/admin/subjects', [
+            'code' => 'plpk-tsm',
+            'name' => 'Pemeliharaan Kelistrikan',
+            'department_id' => $department->id,
+            'category' => Subject::CATEGORY_KEJURUAN,
         ])->assertRedirect();
 
-        $this->assertSame('XII', $objective->fresh()->grade_level);
+        $subject = Subject::firstOrFail();
+        $this->assertSame('PLPK-TSM', $subject->code);
+
+        $this->actingAs($admin)->post('/admin/subjects', [
+            'code' => 'PLPK-TSM',
+            'name' => 'Duplikat',
+            'category' => Subject::CATEGORY_UMUM,
+        ])->assertSessionHasErrors('code');
+
+        $this->actingAs($admin)->put("/admin/subjects/{$subject->id}", [
+            'code' => 'PLPK-TSM',
+            'name' => 'Pemeliharaan Kelistrikan Sepeda Motor',
+            'department_id' => $department->id,
+            'category' => Subject::CATEGORY_KEJURUAN,
+        ])->assertRedirect();
+
+        $this->assertSame('Pemeliharaan Kelistrikan Sepeda Motor', $subject->fresh()->name);
+
+        LearningObjective::create([
+            'subject_id' => $subject->id,
+            'grade_level' => 'XI',
+            'code' => 'TP-1.1',
+            'description' => 'Menjelaskan prinsip kelistrikan.',
+        ]);
+
+        $this->actingAs($admin)
+            ->delete("/admin/subjects/{$subject->id}")
+            ->assertSessionHas('error');
+
+        $this->assertDatabaseHas('subjects', ['id' => $subject->id]);
+    }
+
+    public function test_subjects_page_lists_counts_and_filters_by_department(): void
+    {
+        $tsm = Department::factory()->create(['code' => 'TSM', 'name' => 'Teknik Sepeda Motor']);
+        $tkj = Department::factory()->create(['code' => 'TKJ', 'name' => 'Teknik Komputer']);
+        $subject = Subject::factory()->create(['department_id' => $tsm->id, 'code' => 'PLPK', 'category' => 'kejuruan']);
+        Subject::factory()->create(['department_id' => $tkj->id, 'code' => 'RPL', 'category' => 'kejuruan']);
+
+        LearningObjective::create([
+            'subject_id' => $subject->id,
+            'grade_level' => 'XI',
+            'code' => 'TP-1.1',
+            'description' => 'Menjelaskan prinsip kelistrikan.',
+        ]);
+
+        $this->actingAs($this->admin())
+            ->get('/admin/subjects?department_id='.$tsm->id)
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Admin/Subjects')
+                ->has('subjects', 1)
+                ->where('subjects.0.code', 'PLPK')
+                ->where('subjects.0.objectives_count', 1)
+                ->where('subjects.0.assignments_count', 0)
+                ->has('departments', 2)
+                ->where('filters.department_id', $tsm->id));
     }
 
     public function test_ploting_page_renders_matrix_and_summary(): void

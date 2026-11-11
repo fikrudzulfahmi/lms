@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useForm, router } from '@inertiajs/react';
-import AdminLayout from '@/Layouts/AdminLayout';
+import TeacherLayout from '@/Layouts/TeacherLayout';
 import {
     Badge,
     Button,
@@ -58,7 +58,7 @@ export default function Objectives({
             if (v !== '' && v !== null && v !== undefined) query[k] = v;
         });
 
-        router.get('/admin/objectives', query, {
+        router.get('/teacher/objectives', query, {
             preserveState: true,
             preserveScroll: true,
             replace: true,
@@ -77,9 +77,9 @@ export default function Objectives({
         };
 
         if (editingId) {
-            form.put(`/admin/objectives/${editingId}`, options);
+            form.put(`/teacher/objectives/${editingId}`, options);
         } else {
-            form.post('/admin/objectives', options);
+            form.post('/teacher/objectives', options);
         }
     }
 
@@ -102,11 +102,11 @@ export default function Objectives({
 
     function destroy(o) {
         if (!confirm(`Hapus TP ${o.code} (${o.grade_level}) — ${o.subject_name}?`)) return;
-        router.delete(`/admin/objectives/${o.id}`, { preserveScroll: true });
+        router.delete(`/teacher/objectives/${o.id}`, { preserveScroll: true });
     }
 
     return (
-        <AdminLayout>
+        <TeacherLayout>
             <PageHeader
                 title="Bank TP"
                 subtitle="Bank Tujuan Pembelajaran per mapel & jenjang. Kode TP dipakai saat menyusun modul ajar."
@@ -117,6 +117,14 @@ export default function Objectives({
                     </>
                 }
             />
+
+            {subjects.length === 0 && (
+                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    Belum ada mapel yang bisa Anda kelola. Minta admin melakukan{' '}
+                    <span className="font-semibold">Ploting Mengajar</span> untuk Anda di tahun
+                    pelajaran aktif.
+                </div>
+            )}
 
             <Toolbar>
                 <div className="min-w-[12rem] flex-1">
@@ -168,7 +176,7 @@ export default function Objectives({
                 <div className="ml-auto pb-1">
                     <Button
                         variant="outline"
-                        onClick={() => router.get('/admin/objectives', {})}
+                        onClick={() => router.get('/teacher/objectives', {})}
                     >
                         Reset
                     </Button>
@@ -318,6 +326,6 @@ export default function Objectives({
                     );
                 })}
             </div>
-        </AdminLayout>
+        </TeacherLayout>
     );
 }

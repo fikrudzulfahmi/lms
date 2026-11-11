@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreAcademicYearRequest;
 use App\Http\Requests\StoreClassroomRequest;
 use App\Http\Requests\StoreDepartmentRequest;
-use App\Http\Requests\StoreLearningObjectiveRequest;
 use App\Http\Requests\StoreTeachingAssignmentRequest;
 use App\Models\AcademicYear;
 use App\Models\Classroom;
@@ -570,88 +569,5 @@ class AdminController
         $assignment->delete();
 
         return back()->with('success', 'Ploting dihapus.');
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Bank TP (Tujuan Pembelajaran)
-    |--------------------------------------------------------------------------
-    */
-
-    public function objectives(Request $request): Response
-    {
-        $subjectId = $request->integer('subject_id') ?: null;
-        $gradeLevel = $request->string('grade_level')->trim()->toString() ?: null;
-        $search = $request->string('q')->trim()->toString() ?: null;
-
-        $subjects = Subject::with('department')->orderBy('name')->get();
-
-        $objectives = LearningObjective::with(['subject.department'])
-            ->when($subjectId, fn ($q, $id) => $q->where('subject_id', $id))
-            ->when($gradeLevel, fn ($q, $grade) => $q->where('grade_level', $grade))
-            ->when($search, fn ($q, $term) => $q->where(
-                fn ($inner) => $inner
-                    ->where('code', 'like', "%{$term}%")
-                    ->orWhere('description', 'like', "%{$term}%"),
-            ))
-            ->orderBy('subject_id')
-            ->orderBy('grade_level')
-            ->orderBy('code')
-            ->get()
-            ->map(fn (LearningObjective $o) => [
-                'id' => $o->id,
-                'subject_id' => $o->subject_id,
-                'subject_code' => $o->subject?->code,
-                'subject_name' => $o->subject?->name,
-                'department' => $o->subject?->department?->code,
-                'grade_level' => $o->grade_level,
-                'code' => $o->code,
-                'description' => $o->description,
-            ]);
-
-        return Inertia::render('Admin/Objectives', [
-            'subjects' => $subjects,
-            'objectives' => $objectives,
-            'grade_levels' => Classroom::GRADE_LEVELS,
-            'filters' => [
-                'subject_id' => $subjectId,
-                'grade_level' => $gradeLevel,
-                'q' => $search,
-            ],
-            'total' => LearningObjective::count(),
-        ]);
-    }
-
-    public function storeObjective(StoreLearningObjectiveRequest $request): RedirectResponse
-    {
-        $data = $request->validated();
-
-        LearningObjective::create([
-            'subject_id' => $data['subject_id'],
-            'grade_level' => $data['grade_level'],
-            'code' => $data['code'],
-            'description' => $data['description'],
-            'teacher_id' => null,
-        ]);
-
-        return back()->with('success', 'Tujuan pembelajaran ditambahkan.');
-    }
-
-    public function updateObjective(StoreLearningObjectiveRequest $request, LearningObjective $objective): RedirectResponse
-    {
-        $objective->update($request->validated());
-
-        return back()->with('success', 'Tujuan pembelajaran diperbarui.');
-    }
-
-    public function destroyObjective(LearningObjective $objective): RedirectResponse
-    {
-        if ($objective->modules()->exists()) {
-            return back()->with('error', 'TP masih dipakai modul ajar. Lepas dari modul dulu.');
-        }
-
-        $objective->delete();
-
-        return back()->with('success', 'Tujuan pembelajaran dihapus.');
     }
 }

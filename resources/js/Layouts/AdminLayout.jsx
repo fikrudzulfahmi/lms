@@ -12,8 +12,8 @@ export const navItems = [
     { label: 'Dashboard', href: '/admin', exact: true, icon: 'dashboard' },
     { label: 'Tahun Pelajaran', href: '/admin/academic-years', icon: 'calendar' },
     { label: 'Kelas & Siswa', href: '/admin/classrooms', icon: 'users' },
+    { label: 'Mata Pelajaran', href: '/admin/subjects', icon: 'book' },
     { label: 'Ploting Mengajar', href: '/admin/ploting', icon: 'shuffle' },
-    { label: 'Bank TP', href: '/admin/objectives', icon: 'book' },
 ];
 
 function isActive(url, item) {
