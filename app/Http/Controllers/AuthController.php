@@ -27,17 +27,21 @@ class AuthController
         $user = User::where('username', $data['username'])->first();
 
         if (! $user || ! Hash::check($data['password'], $user->password)) {
-            return back()->withInput()->with('error', 'Username atau password salah.');
+            return back()
+                ->withErrors(['username' => 'Username atau password salah.'])
+                ->onlyInput('username');
         }
 
         if (! $user->is_active) {
-            return back()->with('error', 'Akun tidak aktif. Hubungi admin.');
+            return back()
+                ->withErrors(['username' => 'Akun tidak aktif. Hubungi admin.'])
+                ->onlyInput('username');
         }
 
         Auth::login($user);
         $request->session()->regenerate();
 
-        return redirect()->intended($this->homeFor($user));
+        return redirect($this->intendedFor($user, $request) ?? $this->homeFor($user));
     }
 
     /**
@@ -67,6 +71,41 @@ class AuthController
         $request->session()->regenerate();
 
         return redirect($this->homeFor($user));
+    }
+
+    /**
+     * Tujuan setelah login dari url.intended, hanya bila aman dan sesuai role.
+     *
+     * intended mentah bisa berisi halaman role lain (berujung 403), halaman
+     * login sendiri, atau URL basi dari rantai redirect sebelumnya — semua
+     * itu pernah membuat navigasi Inertia setelah login tidak tuntas dan
+     * halaman tampak baru masuk setelah refresh manual. Selain prefix role
+     * di bawah ini, fallback-nya selalu home sesuai role.
+     */
+    private function intendedFor(User $user, Request $request): ?string
+    {
+        $intended = $request->session()->pull('url.intended');
+
+        if (! is_string($intended) || $intended === '') {
+            return null;
+        }
+
+        $path = (string) parse_url($intended, PHP_URL_PATH);
+
+        $prefixes = match ($user->role) {
+            User::ROLE_ADMIN => ['/admin', '/teacher'],
+            User::ROLE_TEACHER => ['/teacher'],
+            User::ROLE_STUDENT => ['/student', '/live'],
+            default => [],
+        };
+
+        foreach ($prefixes as $prefix) {
+            if ($path === $prefix || str_starts_with($path, $prefix.'/')) {
+                return $intended;
+            }
+        }
+
+        return null;
     }
 
     public function homeFor(User $user): string

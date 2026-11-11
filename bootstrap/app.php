@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AuthController;
 use App\Http\Middleware\EnsureRole;
 use App\Http\Middleware\HandleInertiaRequests;
 use Illuminate\Foundation\Application;
@@ -24,6 +25,14 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             'internal/live-sessions/validate',
         ]);
+
+        // Arahkan tamu dan user yang sudah login secara deterministik.
+        // Tanpa ini, refresh di /login saat sesi sudah aktif bergantung pada
+        // default framework yang menunjuk ke path yang tidak ada di aplikasi.
+        $middleware->redirectGuestsTo(fn () => route('login'));
+        $middleware->redirectUsersTo(
+            fn (Request $request) => app(AuthController::class)->homeFor($request->user())
+        );
 
         $middleware->alias([
             'role' => EnsureRole::class,

@@ -129,7 +129,9 @@ export default function StudentGrades({ report, active_year }) {
                                                             <ScorePill score={assessment.score} passed={assessment.is_passed} />
                                                         </td>
                                                         <td className="px-2 py-1.5 text-right text-xs">
-                                                            {assessment.is_passed ? (
+                                                            {assessment.score === null || assessment.score === undefined ? (
+                                                                <span className="text-zinc-500">Belum dinilai</span>
+                                                            ) : assessment.is_passed ? (
                                                                 <span className="text-emerald-700">Tuntas</span>
                                                             ) : (
                                                                 <span className="text-amber-700">Remedial</span>

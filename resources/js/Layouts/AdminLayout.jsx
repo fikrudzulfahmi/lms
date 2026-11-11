@@ -55,24 +55,26 @@ function FlashBanners({ flash }) {
 }
 
 export default function AdminLayout({ children }) {
-    const { url, flash, auth, active_year, appName } = usePage().props;
+    const page = usePage();
+    const { flash, auth, active_year, appName } = page.props;
+    const url = page.url;
     const current = navItems.find((item) => isActive(url, item));
 
     return (
         <div className="flex min-h-screen bg-zinc-50/80">
-            <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-zinc-200/80 bg-white md:flex">
-                <Link href="/admin" className="flex h-16 items-center gap-2.5 border-b border-zinc-100 px-5">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 font-display text-[13px] font-bold text-white shadow-sm">
+            <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col bg-ink-950 md:flex">
+                <Link href="/admin" className="flex h-16 items-center gap-2.5 border-b border-white/10 px-5">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brass-500 font-display text-[13px] font-bold text-white shadow-sm">
                         LMS
                     </div>
                     <div className="min-w-0">
-                        <div className="truncate font-display text-sm font-bold text-zinc-900">{appName ?? 'LMS SMK'}</div>
-                        <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">Admin Panel</div>
+                        <div className="truncate font-display text-sm font-bold text-white">{appName ?? 'LMS SMK'}</div>
+                        <div className="text-[11px] font-medium uppercase tracking-wider text-white/50">Admin Panel</div>
                     </div>
                 </Link>
 
                 <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
-                    <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-widest text-zinc-400">Akademik</div>
+                    <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-widest text-white/40">Akademik</div>
                     {navItems.map((item) => {
                         const active = isActive(url, item);
                         return (
@@ -83,14 +85,14 @@ export default function AdminLayout({ children }) {
                                 className={
                                     'group relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-all ' +
                                     (active
-                                        ? 'bg-emerald-50 text-emerald-700 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.15)]'
-                                        : 'text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900')
+                                        ? 'bg-white/10 text-white'
+                                        : 'text-zinc-300 hover:bg-white/5 hover:text-white')
                                 }
                             >
-                                {active && <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-emerald-500" />}
+                                {active && <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full bg-brass-500" />}
                                 <NavIcon
                                     name={item.icon}
-                                    className={'h-4 w-4 ' + (active ? 'text-emerald-600' : 'text-zinc-400 group-hover:text-zinc-600')}
+                                    className={'h-4 w-4 ' + (active ? 'text-brass-300' : 'text-white/40 group-hover:text-white/70')}
                                 />
                                 {item.label}
                             </Link>
@@ -98,30 +100,30 @@ export default function AdminLayout({ children }) {
                     })}
                 </nav>
 
-                <div className="space-y-2 border-t border-zinc-100 p-3">
+                <div className="space-y-2 border-t border-white/10 p-3">
                     {active_year ? (
-                        <div className="rounded-lg bg-emerald-50/70 px-3 py-2">
-                            <div className="text-[10px] font-semibold uppercase leading-4 tracking-wider text-emerald-700/80">Tahun Aktif</div>
-                            <div className="mt-1 truncate font-mono text-xs font-semibold leading-4 text-emerald-800">{active_year.label}</div>
+                        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                            <div className="text-[10px] font-semibold uppercase leading-4 tracking-wider text-brass-300/90">Tahun Aktif</div>
+                            <div className="mt-1 truncate font-mono text-xs font-semibold leading-4 text-white">{active_year.label}</div>
                         </div>
                     ) : (
-                        <div className="rounded-lg bg-zinc-50 px-3 py-2 text-[11px] font-medium text-zinc-500">
+                        <div className="rounded-lg bg-white/5 px-3 py-2 text-[11px] font-medium text-white/60">
                             Belum ada tahun pelajaran aktif
                         </div>
                     )}
                     <div className="flex items-center gap-2.5 rounded-lg px-1 py-1">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-xs font-semibold text-white">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brass-500 text-xs font-semibold text-white">
                             {(auth?.user?.name ?? '?').slice(0, 1).toUpperCase()}
                         </div>
                         <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm font-medium text-zinc-900">{auth?.user?.name}</div>
-                            <div className="text-[11px] capitalize text-zinc-400">{auth?.user?.role}</div>
+                            <div className="truncate text-sm font-medium text-white">{auth?.user?.name}</div>
+                            <div className="text-[11px] capitalize text-white/50">{auth?.user?.role}</div>
                         </div>
                         <Link
                             href="/logout"
                             method="post"
                             as="button"
-                            className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+                            className="rounded-md p-1.5 text-white/50 hover:bg-white/10 hover:text-white"
                             title="Keluar"
                         >
                             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.75} stroke="currentColor">

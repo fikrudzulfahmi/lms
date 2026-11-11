@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 let pdfjsPromise = null;
 
@@ -31,6 +31,12 @@ async function loadPdfJs() {
 
         return pdfjsLib;
     })();
+
+    // Satu kegagalan memuat pdf.js tidak boleh meracuni semua impor berikutnya.
+    pdfjsPromise = pdfjsPromise.catch((error) => {
+        pdfjsPromise = null;
+        throw error;
+    });
 
     return pdfjsPromise;
 }
@@ -94,6 +100,7 @@ async function renderPageToDataUrl(pdf, pageNumber) {
 }
 
 export default function PdfSlideImporter({ endpoint, csrfToken, onImported, disabled = false }) {
+    const inputId = useId();
     const [busy, setBusy] = useState(false);
     const [phase, setPhase] = useState('idle');
     const [status, setStatus] = useState('');
@@ -244,7 +251,7 @@ export default function PdfSlideImporter({ endpoint, csrfToken, onImported, disa
             <div className="flex flex-wrap items-center gap-2">
                 <input
                     ref={inputRef}
-                    id="pdf-slide-input"
+                    id={inputId}
                     type="file"
                     accept="application/pdf,.pdf"
                     className="hidden"

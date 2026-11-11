@@ -217,9 +217,9 @@ export default function Classrooms({
         const term = indukQuery.trim().toLowerCase();
         return indukClasses.filter((row) => {
             if (indukOnlyMatched && !matchedClassroomId(row.kelas)) return false;
-            return !term || row.kelas.toLowerCase().includes(term);
+            return !term || String(row.kelas ?? '').toLowerCase().includes(term);
         });
-    }, [indukClasses, indukQuery, indukOnlyMatched]);
+    }, [indukClasses, indukQuery, indukOnlyMatched, classrooms]);
 
     // ---------------------------------------------------------------- filter
     function applyFilter(key, value) {

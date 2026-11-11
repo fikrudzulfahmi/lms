@@ -1,4 +1,4 @@
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DynamicBlockRenderer from '@/Components/DynamicBlockRenderer';
 import { useClassroomSync } from '@/hooks/useClassroomSync';
@@ -21,7 +21,7 @@ export default function Room({
     const [status, setStatus] = useState(session.status);
     const [liveModule, setLiveModule] = useState(null);
     const [saved, setSaved] = useState(myResponses ?? {});
-    const [saving, setSaving] = useState(false);
+    const [savingBlocks, setSavingBlocks] = useState(() => new Set());
     const [error, setError] = useState(null);
 
     const currentIdRef = useRef(currentId);
@@ -54,17 +54,31 @@ export default function Room({
         role: 'student',
         name: studentName,
         onState: handleState,
-        onModule: (payload) => setLiveModule(payload),
+        onModule: (payload) => {
+            // Abaikan payload modul bila daftar bloknya sama dengan props:
+            // serialisasi WS mengacak urutan langkah soal sequencing di server,
+            // dan mengganti objek blok akan mereset susunan yang sedang dikerjakan siswa.
+            const incomingIds = (payload?.blocks ?? []).map((block) => block.id).join(',');
+            const knownIds = blocks.map((block) => block.id).join(',');
+            if (incomingIds && incomingIds === knownIds) return;
+            setLiveModule(payload);
+        },
         onEnded: () => setStatus('ended'),
     });
 
     const savedForActive = saved?.[activeBlock?.id] ?? null;
+    const saving = activeBlock ? savingBlocks.has(activeBlock.id) : false;
     const connected = socketStatus === 'open';
 
+    // Mengembalikan true hanya bila jawaban benar-benar tersimpan di server,
+    // agar blok soal tidak menampilkan "terkirim" untuk kiriman yang gagal.
     async function submitAnswer(answer) {
-        if (!activeBlock || saving) return;
+        if (!activeBlock) return false;
 
-        setSaving(true);
+        const blockId = activeBlock.id;
+        if (savingBlocks.has(blockId)) return false;
+
+        setSavingBlocks((current) => new Set(current).add(blockId));
         setError(null);
 
         try {
@@ -76,7 +90,7 @@ export default function Room({
                     'Content-Type': 'application/json',
                     'X-XSRF-TOKEN': xsrfToken(),
                 },
-                body: JSON.stringify({ block_id: activeBlock.id, answer }),
+                body: JSON.stringify({ block_id: blockId, answer }),
             });
 
             if (!response.ok) {
@@ -87,20 +101,38 @@ export default function Room({
             const payload = await response.json();
             setSaved((current) => ({
                 ...current,
-                [activeBlock.id]: {
+                [blockId]: {
                     answer,
                     earned_points: payload.earned_points,
                     is_graded: payload.is_graded,
                 },
             }));
 
-            sendAnswer(activeBlock.id, answer);
+            sendAnswer(blockId, answer);
+            return true;
         } catch (caught) {
             setError(caught.message);
+            return false;
         } finally {
-            setSaving(false);
+            setSavingBlocks((current) => {
+                const next = new Set(current);
+                next.delete(blockId);
+                return next;
+            });
         }
     }
+
+    // Cadangan bila WebSocket mati: periksa ulang state sesi dari server
+    // secara berkala agar siswa tidak terjebak di layar tunggu selamanya.
+    useEffect(() => {
+        if (connected || status === 'ended') return undefined;
+
+        const timer = setInterval(() => {
+            router.reload({ only: ['session'] });
+        }, 20000);
+
+        return () => clearInterval(timer);
+    }, [connected, status]);
 
     const ended = status === 'ended';
 
@@ -165,6 +197,12 @@ export default function Room({
                             Menunggu guru memulai
                         </h1>
                         <p className="mt-1 text-sm text-zinc-500">Halaman akan berganti otomatis.</p>
+                        {!connected && (
+                            <p className="mt-2 text-xs text-amber-600">
+                                Koneksi realtime belum tersambung — halaman memeriksa ulang otomatis tiap
+                                20 detik. Tetap di halaman ini ya.
+                            </p>
+                        )}
                     </div>
                 ) : activeBlock ? (
                     <>
@@ -182,6 +220,7 @@ export default function Room({
                             index={activeIndex}
                             total={allBlocks.length}
                             onSubmitAnswer={submitAnswer}
+                            initialAnswer={saved[activeBlock.id]?.answer ?? null}
                         />
 
                         <div className="mt-3 min-h-8">

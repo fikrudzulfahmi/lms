@@ -88,7 +88,9 @@ async function apiRequest(url, method, body) {
 
     if (!response.ok) {
         const firstError = payload?.errors ? Object.values(payload.errors).flat()[0] : null;
-        throw new Error(firstError || payload?.message || `Gagal menyimpan (${response.status}).`);
+        const error = new Error(firstError || payload?.message || `Gagal menyimpan (${response.status}).`);
+        error.status = response.status;
+        throw error;
     }
 
     return payload;
@@ -99,7 +101,7 @@ function timeLabel(iso) {
     return new Date(iso).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 }
 
-export default function Edit({ module, blocks: initialBlocks = [], block_types = [], objectives = [], ai = {}, urls = {} }) {
+export default function Edit({ module, blocks: initialBlocks = [], block_types = [], objectives = [], ai = {}, urls = {}, live = null }) {
     const [blocks, setBlocks] = useState(initialBlocks);
     const [selectedId, setSelectedId] = useState(initialBlocks[0]?.id ?? null);
     const [saveState, setSaveState] = useState('saved');
@@ -129,6 +131,8 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
 
     const timers = useRef(new Map());
     const metaTimer = useRef(null);
+    const pendingMeta = useRef(null);
+    const [liveStarting, setLiveStarting] = useState(false);
     const blocksRef = useRef(initialBlocks);
     const titleRef = useRef(module.title);
 
@@ -150,41 +154,90 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
         setSaveError(error.message || 'Gagal menyimpan.');
     }, []);
 
+    const saveBlockNow = useCallback(
+        async (block) => {
+            setSaveState('saving');
+
+            try {
+                const payload = await apiRequest(urls.blocks + '/' + block.id, 'PATCH', {
+                    block_type: block.block_type,
+                    points: Number(block.points) || 0,
+                    content: block.content ?? {},
+                    ai_rubric: block.ai_rubric ?? null,
+                });
+                markSaved(payload.saved_at);
+            } catch (error) {
+                markError(error);
+            }
+        },
+        [markError, markSaved, urls.blocks],
+    );
+
     const scheduleSave = useCallback(
         (block) => {
             setSaveState('dirty');
             setSaveError(null);
 
             const existing = timers.current.get(block.id);
-            if (existing) clearTimeout(existing);
+            if (existing) clearTimeout(existing.handle);
 
-            const timer = setTimeout(async () => {
+            const handle = setTimeout(() => {
                 timers.current.delete(block.id);
-                setSaveState('saving');
-
-                try {
-                    const payload = await apiRequest(urls.blocks + '/' + block.id, 'PATCH', {
-                        block_type: block.block_type,
-                        points: Number(block.points) || 0,
-                        content: block.content ?? {},
-                        ai_rubric: block.ai_rubric ?? null,
-                    });
-                    markSaved(payload.saved_at);
-                } catch (error) {
-                    markError(error);
-                }
+                saveBlockNow(block);
             }, 750);
 
-            timers.current.set(block.id, timer);
+            timers.current.set(block.id, { handle, block });
         },
-        [markError, markSaved, urls.blocks],
+        [saveBlockNow],
     );
+
+    // Jalankan semua autosave yang masih tertunda SEKARANG. Dipakai saat
+    // halaman ditinggalkan agar ketikan terakhir guru tidak hilang diam-diam.
+    const flushPendingSaves = useCallback(async () => {
+        const pending = [...timers.current.values()];
+        timers.current.clear();
+        pending.forEach((entry) => clearTimeout(entry.handle));
+
+        if (pending.length > 0) {
+            await Promise.allSettled(pending.map((entry) => saveBlockNow(entry.block)));
+        }
+
+        if (metaTimer.current) {
+            clearTimeout(metaTimer.current);
+            metaTimer.current = null;
+        }
+
+        if (pendingMeta.current) {
+            const patch = pendingMeta.current;
+            pendingMeta.current = null;
+            setSaveState('saving');
+
+            try {
+                const payload = await apiRequest(urls.update, 'PATCH', patch);
+                markSaved(payload.saved_at);
+            } catch (error) {
+                markError(error);
+            }
+        }
+    }, [markError, markSaved, saveBlockNow, urls.update]);
 
     useEffect(() => {
         return () => {
-            timers.current.forEach((timer) => clearTimeout(timer));
-            if (metaTimer.current) clearTimeout(metaTimer.current);
+            // Unmount: flush, JANGAN sekadar membatalkan timer.
+            flushPendingSaves();
         };
+    }, [flushPendingSaves]);
+
+    useEffect(() => {
+        function warnBeforeUnload(event) {
+            if (timers.current.size > 0 || pendingMeta.current) {
+                event.preventDefault();
+                event.returnValue = '';
+            }
+        }
+
+        window.addEventListener('beforeunload', warnBeforeUnload);
+        return () => window.removeEventListener('beforeunload', warnBeforeUnload);
     }, []);
 
     useEffect(() => {
@@ -194,6 +247,7 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
 
         let cancelled = false;
         let timer = null;
+        let failures = 0;
 
         async function poll() {
             try {
@@ -206,6 +260,11 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
                 setAiError(payload.ai_error ?? null);
 
                 if (next === 'completed') {
+                    // Batalkan autosave tertunda dulu: PATCH basi tidak boleh
+                    // menimpa blok hasil AI yang baru tiba.
+                    timers.current.forEach((entry) => clearTimeout(entry.handle));
+                    timers.current.clear();
+
                     const incoming = Array.isArray(payload.blocks) ? payload.blocks : [];
                     setBlocks(incoming);
                     setSelectedId(incoming[incoming.length - 1]?.id ?? null);
@@ -223,6 +282,18 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
                 timer = setTimeout(poll, 2500);
             } catch (error) {
                 if (cancelled) return;
+
+                failures += 1;
+                const sessionGone = [401, 403, 419].includes(error.status);
+
+                if (sessionGone || failures >= 3) {
+                    setAiError(
+                        sessionGone
+                            ? 'Sesi login berakhir. Muat ulang halaman untuk melanjutkan.'
+                            : 'Tidak dapat memeriksa status AI setelah beberapa kali percobaan. Muat ulang halaman untuk mengecek lagi.',
+                    );
+                    return;
+                }
 
                 setAiError(error.message || 'Gagal memeriksa status AI.');
                 timer = setTimeout(poll, 5000);
@@ -355,10 +426,12 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
     async function deleteBlock(id) {
         if (!window.confirm('Hapus blok ini? Tindakan tidak dapat dibatalkan.')) return;
 
+        const snapshot = blocks;
+        const previousSelected = selectedId;
         const remaining = blocks.filter((block) => block.id !== id);
         const pending = timers.current.get(id);
         if (pending) {
-            clearTimeout(pending);
+            clearTimeout(pending.handle);
             timers.current.delete(id);
         }
         setBlocks(remaining);
@@ -369,11 +442,15 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
             const payload = await apiRequest(`${urls.blocks}/${id}`, 'DELETE');
             markSaved(payload.saved_at);
         } catch (error) {
+            // Gagal di server: kembalikan blok ke tampilan agar tidak menyimpang.
+            setBlocks(snapshot);
+            setSelectedId(previousSelected);
             markError(error);
         }
     }
 
     async function persistOrder(nextBlocks) {
+        const snapshot = blocksRef.current;
         setBlocks(nextBlocks);
         setSaveState('saving');
 
@@ -383,6 +460,7 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
             });
             markSaved(payload.saved_at);
         } catch (error) {
+            setBlocks(snapshot);
             markError(error);
         }
     }
@@ -411,12 +489,18 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
 
     function updateMeta(patch) {
         setSaveState('dirty');
+        pendingMeta.current = { ...(pendingMeta.current ?? {}), ...patch };
         if (metaTimer.current) clearTimeout(metaTimer.current);
 
         metaTimer.current = setTimeout(async () => {
+            metaTimer.current = null;
+            const pendingPatch = pendingMeta.current;
+            pendingMeta.current = null;
+            if (!pendingPatch) return;
+
             setSaveState('saving');
             try {
-                const payload = await apiRequest(urls.update, 'PATCH', patch);
+                const payload = await apiRequest(urls.update, 'PATCH', pendingPatch);
                 markSaved(payload.saved_at);
             } catch (error) {
                 markError(error);
@@ -424,10 +508,23 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
         }, 800);
     }
 
-    function toggleStatus() {
+    async function toggleStatus() {
+        const previous = status;
         const next = status === 'published' ? 'draft' : 'published';
         setStatus(next);
-        updateMeta({ status: next, title: titleRef.current });
+        setSaveState('saving');
+
+        try {
+            const payload = await apiRequest(urls.update, 'PATCH', {
+                status: next,
+                title: titleRef.current,
+            });
+            markSaved(payload.saved_at);
+        } catch (error) {
+            // Status di server tidak berubah: kembalikan label ke keadaan semula.
+            setStatus(previous);
+            markError(error);
+        }
     }
 
     const stateBadge = {
@@ -488,15 +585,51 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
                         )}
                     </div>
 
-                    <button
-                        type="button"
-                        onClick={() => router.post(`/teacher/modules/${module.id}/live`)}
-                        disabled={blocks.length === 0}
-                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
-                        title={blocks.length === 0 ? 'Tambahkan minimal satu blok dulu' : 'Buka panggung proyektor'}
-                    >
-                        Panggung Live
-                    </button>
+                    {live?.stage_url ? (
+                        <>
+                            <Link
+                                href={live.stage_url}
+                                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
+                            >
+                                Buka Panggung (sedang live)
+                            </Link>
+                            <button
+                                type="button"
+                                disabled={liveStarting}
+                                onClick={() => {
+                                    if (
+                                        !window.confirm(
+                                            'Sesi live yang sedang berjalan akan DI AKHIRI dan diganti sesi baru. Semua siswa terputus dan PIN berubah. Lanjutkan?',
+                                        )
+                                    ) {
+                                        return;
+                                    }
+                                    setLiveStarting(true);
+                                    router.post(`/teacher/modules/${module.id}/live`, {}, {
+                                        onFinish: () => setLiveStarting(false),
+                                    });
+                                }}
+                                className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                {liveStarting ? 'Memulai...' : 'Mulai Sesi Baru'}
+                            </button>
+                        </>
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setLiveStarting(true);
+                                router.post(`/teacher/modules/${module.id}/live`, {}, {
+                                    onFinish: () => setLiveStarting(false),
+                                });
+                            }}
+                            disabled={blocks.length === 0 || liveStarting}
+                            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            title={blocks.length === 0 ? 'Tambahkan minimal satu blok dulu' : 'Buka panggung proyektor'}
+                        >
+                            {liveStarting ? 'Memulai...' : 'Panggung Live'}
+                        </button>
+                    )}
 
                     <button
                         type="button"

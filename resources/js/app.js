@@ -6,9 +6,11 @@ createInertiaApp({
         const pages = import.meta.glob('./Pages/**/*.jsx', { eager: true });
         return pages[`./Pages/${name}.jsx`];
     },
-    el: 'app',
+    // Inertia v3 memasang aplikasi otomatis ke elemen dengan id ini.
+    // (Opsi `el` dari v1/v2 tidak dikenal di v3 dan diabaikan.)
+    id: 'app',
     progress: {
-        color: '#059669',
+        color: '#0E6B52',
         show: true,
         delay: 150,
     },

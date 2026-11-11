@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 /**
  * DynamicBlockRenderer
@@ -163,15 +163,32 @@ function QuestionHeader({ label, points, mode }) {
     );
 }
 
-function McqBlock({ data, mode, points, reveal, onSubmitAnswer }) {
-    const [selected, setSelected] = useState(null);
+async function submitAndMark(onSubmitAnswer, payload, setSubmitted, setSending) {
+    if (!onSubmitAnswer) return;
+
+    setSending(true);
+    try {
+        const ok = await onSubmitAnswer(payload);
+        // Kontrak: parent mengembalikan false bila server gagal menyimpan.
+        if (ok !== false) setSubmitted(true);
+    } finally {
+        setSending(false);
+    }
+}
+
+function McqBlock({ data, mode, points, reveal, onSubmitAnswer, initialAnswer = null }) {
+    const [selected, setSelected] = useState(() =>
+        Number.isInteger(initialAnswer?.option_index) ? initialAnswer.option_index : null,
+    );
     const [checked, setChecked] = useState(false);
-    const [submitted, setSubmitted] = useState(false);
+    const [submitted, setSubmitted] = useState(() => initialAnswer != null);
+    const [sending, setSending] = useState(false);
 
     useEffect(() => {
-        setSelected(null);
+        setSelected(Number.isInteger(initialAnswer?.option_index) ? initialAnswer.option_index : null);
         setChecked(false);
-        setSubmitted(false);
+        setSubmitted(initialAnswer != null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [data.question, data.options.length]);
 
     const interactive = mode !== 'editor_guru' && mode !== 'live_proyektor';
@@ -238,14 +255,18 @@ function McqBlock({ data, mode, points, reveal, onSubmitAnswer }) {
                         <>
                             <button
                                 type="button"
-                                disabled={selected === null}
-                                onClick={() => {
-                                    setSubmitted(true);
-                                    onSubmitAnswer({ option_index: selected });
-                                }}
+                                disabled={selected === null || sending}
+                                onClick={() =>
+                                    submitAndMark(
+                                        onSubmitAnswer,
+                                        { option_index: selected },
+                                        setSubmitted,
+                                        setSending,
+                                    )
+                                }
                                 className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
                             >
-                                Kirim Jawaban
+                                {sending ? 'Mengirim...' : submitted ? 'Kirim Ulang Jawaban' : 'Kirim Jawaban'}
                             </button>
                             {submitted && (
                                 <span className="text-xs font-medium text-emerald-700">Jawaban terkirim.</span>
@@ -303,16 +324,41 @@ function shuffledSteps(steps, shuffle) {
     return copy;
 }
 
-function SequencingBlock({ data, mode, points, reveal, onSubmitAnswer }) {
-    const [order, setOrder] = useState(() => shuffledSteps(data.steps, mode === 'live_proyektor'));
+function orderFromSaved(steps, savedOrder) {
+    if (!Array.isArray(savedOrder) || savedOrder.length !== steps.length) return null;
+
+    const items = savedOrder.map((stepText) => {
+        const index = steps.indexOf(stepText);
+        return index >= 0 ? { step: stepText, index } : null;
+    });
+
+    return items.every(Boolean) ? items : null;
+}
+
+function SequencingBlock({ data, mode, points, reveal, onSubmitAnswer, initialAnswer = null }) {
+    const [order, setOrder] = useState(
+        () => orderFromSaved(data.steps, initialAnswer?.order) ?? shuffledSteps(data.steps, mode === 'live_proyektor'),
+    );
     const [checked, setChecked] = useState(false);
-    const [submitted, setSubmitted] = useState(false);
+    const [submitted, setSubmitted] = useState(() => initialAnswer != null);
+    const [sending, setSending] = useState(false);
+
+    // Reset HANYA bila himpunan langkahnya benar-benar berubah. Reconnect WS
+    // mengacak ulang serialisasi server; urutan kerja siswa tidak boleh hilang.
+    const stepsSignature = [...data.steps].sort().join('|');
+    const signatureRef = useRef(stepsSignature);
 
     useEffect(() => {
-        setOrder(shuffledSteps(data.steps, mode === 'live_proyektor'));
+        if (signatureRef.current === stepsSignature) return;
+        signatureRef.current = stepsSignature;
+        setOrder(
+            orderFromSaved(data.steps, initialAnswer?.order) ??
+                shuffledSteps(data.steps, mode === 'live_proyektor'),
+        );
         setChecked(false);
-        setSubmitted(false);
-    }, [data.steps.join('|'), mode]);
+        setSubmitted(initialAnswer != null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [stepsSignature, mode]);
 
     const interactive = mode !== 'editor_guru' && mode !== 'live_proyektor';
 
@@ -387,13 +433,18 @@ function SequencingBlock({ data, mode, points, reveal, onSubmitAnswer }) {
                         <>
                             <button
                                 type="button"
-                                onClick={() => {
-                                    setSubmitted(true);
-                                    onSubmitAnswer({ order: order.map((item) => item.step) });
-                                }}
-                                className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700"
+                                disabled={sending}
+                                onClick={() =>
+                                    submitAndMark(
+                                        onSubmitAnswer,
+                                        { order: order.map((item) => item.step) },
+                                        setSubmitted,
+                                        setSending,
+                                    )
+                                }
+                                className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
                             >
-                                Kirim Urutan
+                                {sending ? 'Mengirim...' : submitted ? 'Kirim Ulang Urutan' : 'Kirim Urutan'}
                             </button>
                             {submitted && (
                                 <span className="text-xs font-medium text-emerald-700">Urutan terkirim.</span>
@@ -427,7 +478,19 @@ function SequencingBlock({ data, mode, points, reveal, onSubmitAnswer }) {
     );
 }
 
-function MatchingBlock({ data, mode, points, reveal, onSubmitAnswer }) {
+function answersFromSaved(pairs, savedMatching) {
+    if (!savedMatching || typeof savedMatching !== 'object') return {};
+
+    const result = {};
+    pairs.forEach((pair, index) => {
+        if (typeof savedMatching[pair.left] === 'string' && savedMatching[pair.left] !== '') {
+            result[index] = savedMatching[pair.left];
+        }
+    });
+    return result;
+}
+
+function MatchingBlock({ data, mode, points, reveal, onSubmitAnswer, initialAnswer = null }) {
     const rights = useMemo(
         () =>
             data.rights.length > 0
@@ -435,14 +498,16 @@ function MatchingBlock({ data, mode, points, reveal, onSubmitAnswer }) {
                 : data.pairs.map((pair) => pair.right).slice().sort((a, b) => a.localeCompare(b)),
         [data.rights.join('|'), data.pairs.map((p) => p.right).join('|')],
     );
-    const [answers, setAnswers] = useState({});
+    const [answers, setAnswers] = useState(() => answersFromSaved(data.pairs, initialAnswer?.matching));
     const [checked, setChecked] = useState(false);
-    const [submitted, setSubmitted] = useState(false);
+    const [submitted, setSubmitted] = useState(() => initialAnswer != null);
+    const [sending, setSending] = useState(false);
 
     useEffect(() => {
-        setAnswers({});
+        setAnswers(answersFromSaved(data.pairs, initialAnswer?.matching));
         setChecked(false);
-        setSubmitted(false);
+        setSubmitted(initialAnswer != null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [data.pairs.map((p) => `${p.left}:${p.right}`).join('|')]);
 
     const interactive = mode !== 'editor_guru' && mode !== 'live_proyektor';
@@ -508,18 +573,25 @@ function MatchingBlock({ data, mode, points, reveal, onSubmitAnswer }) {
                         <>
                             <button
                                 type="button"
-                                disabled={Object.keys(answers).length < data.pairs.length}
-                                onClick={() => {
-                                    setSubmitted(true);
-                                    onSubmitAnswer({
-                                        matching: Object.fromEntries(
-                                            data.pairs.map((pair, index) => [pair.left, answers[index] ?? '']),
-                                        ),
-                                    });
-                                }}
+                                disabled={Object.keys(answers).length < data.pairs.length || sending}
+                                onClick={() =>
+                                    submitAndMark(
+                                        onSubmitAnswer,
+                                        {
+                                            matching: Object.fromEntries(
+                                                data.pairs.map((pair, index) => [
+                                                    pair.left,
+                                                    answers[index] ?? '',
+                                                ]),
+                                            ),
+                                        },
+                                        setSubmitted,
+                                        setSending,
+                                    )
+                                }
                                 className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
                             >
-                                Kirim Pasangan
+                                {sending ? 'Mengirim...' : submitted ? 'Kirim Ulang Pasangan' : 'Kirim Pasangan'}
                             </button>
                             {submitted && (
                                 <span className="text-xs font-medium text-emerald-700">Pasangan terkirim.</span>
@@ -554,14 +626,16 @@ function MatchingBlock({ data, mode, points, reveal, onSubmitAnswer }) {
     );
 }
 
-function EssayBlock({ data, mode, points, rubric, onSubmitAnswer }) {
-    const [answer, setAnswer] = useState('');
-    const [savedNote, setSavedNote] = useState(false);
+function EssayBlock({ data, mode, points, rubric, onSubmitAnswer, initialAnswer = null }) {
+    const [answer, setAnswer] = useState(() => (typeof initialAnswer?.text === 'string' ? initialAnswer.text : ''));
+    const [savedNote, setSavedNote] = useState(() => Boolean(initialAnswer?.text));
+    const [sending, setSending] = useState(false);
     const interactive = mode !== 'editor_guru' && mode !== 'live_proyektor';
 
     useEffect(() => {
-        setAnswer('');
-        setSavedNote(false);
+        setAnswer(typeof initialAnswer?.text === 'string' ? initialAnswer.text : '');
+        setSavedNote(Boolean(initialAnswer?.text));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [data.question]);
 
     return (
@@ -589,14 +663,22 @@ function EssayBlock({ data, mode, points, rubric, onSubmitAnswer }) {
                     <div className="mt-2 flex items-center gap-3">
                         <button
                             type="button"
-                            disabled={answer.trim().length === 0}
-                            onClick={() => {
-                                setSavedNote(true);
-                                onSubmitAnswer?.({ text: answer });
+                            disabled={answer.trim().length === 0 || sending}
+                            onClick={async () => {
+                                if (!onSubmitAnswer) {
+                                    setSavedNote(true);
+                                    return;
+                                }
+                                await submitAndMark(
+                                    onSubmitAnswer,
+                                    { text: answer },
+                                    setSavedNote,
+                                    setSending,
+                                );
                             }}
                             className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                            {onSubmitAnswer ? 'Kirim Jawaban' : 'Simpan Jawaban'}
+                            {sending ? 'Mengirim...' : onSubmitAnswer ? 'Kirim Jawaban' : 'Simpan Jawaban'}
                         </button>
                         <span className="text-xs text-zinc-500">
                             {answer.trim().split(/\s+/).filter(Boolean).length} kata
@@ -637,6 +719,7 @@ export default function DynamicBlockRenderer({
     total = null,
     showAnswer = false,
     onSubmitAnswer = null,
+    initialAnswer = null,
     className = '',
 }) {
     const safeMode = MODES.includes(mode) ? mode : 'editor_guru';
@@ -798,6 +881,7 @@ export default function DynamicBlockRenderer({
                     points={points}
                     reveal={showAnswer}
                     onSubmitAnswer={onSubmitAnswer}
+                    initialAnswer={initialAnswer}
                 />
             );
             break;
@@ -810,6 +894,7 @@ export default function DynamicBlockRenderer({
                     points={points}
                     reveal={showAnswer}
                     onSubmitAnswer={onSubmitAnswer}
+                    initialAnswer={initialAnswer}
                 />
             );
             break;
@@ -822,6 +907,7 @@ export default function DynamicBlockRenderer({
                     points={points}
                     reveal={showAnswer}
                     onSubmitAnswer={onSubmitAnswer}
+                    initialAnswer={initialAnswer}
                 />
             );
             break;
@@ -834,6 +920,7 @@ export default function DynamicBlockRenderer({
                     points={points}
                     rubric={block?.ai_rubric}
                     onSubmitAnswer={onSubmitAnswer}
+                    initialAnswer={initialAnswer}
                 />
             );
             break;

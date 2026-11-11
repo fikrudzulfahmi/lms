@@ -23,7 +23,9 @@ class HandleInertiaRequests extends InertiaMiddleware
      */
     public function share(Request $request): array
     {
-        $year = AcademicYear::active();
+        // Halaman tamu (login) tidak menampilkan tahun aktif, jadi lewati
+        // query ini untuk guest agar rantai redirect login tetap ringan.
+        $year = $request->user() === null ? null : AcademicYear::active();
 
         return [
             'appName' => config('app.name'),

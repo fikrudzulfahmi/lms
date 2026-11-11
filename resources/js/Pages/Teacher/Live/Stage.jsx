@@ -61,7 +61,10 @@ export default function Stage({
     );
     const [status, setStatus] = useState(session.status);
     const [reveal, setReveal] = useState(false);
-    const [answers, setAnswers] = useState([]);
+    // Jawaban disimpan per blok dan per siswa: pindah slide tidak menghapus
+    // rekap blok lain, dan kiriman ulang dari siswa yang sama tidak terhitung ganda.
+    const [answersByBlock, setAnswersByBlock] = useState({});
+    const goToBusy = useRef(false);
     const [error, setError] = useState(null);
     const [busy, setBusy] = useState(false);
 
@@ -89,12 +92,18 @@ export default function Stage({
             activeIdRef.current = next;
             setActiveId(next);
             setReveal(false);
-            setAnswers([]);
         }
     }, []);
 
     const handleAnswer = useCallback((payload) => {
-        setAnswers((current) => [...current, payload].slice(-60));
+        if (!payload?.block_id) return;
+
+        setAnswersByBlock((current) => {
+            const blockMap = { ...(current[payload.block_id] ?? {}) };
+            const key = payload.student_name ?? 'Siswa';
+            blockMap[key] = { ...payload, at: payload.at ?? Date.now() };
+            return { ...current, [payload.block_id]: blockMap };
+        });
     }, []);
 
     const handleOpen = useCallback(() => {
@@ -115,30 +124,38 @@ export default function Stage({
         onEnded: () => setStatus('ended'),
     });
 
-    const blockAnswers = answers.filter((item) => item.block_id === activeBlock?.id);
+    const blockAnswers = Object.values(answersByBlock[activeBlock?.id] ?? {});
     const isQuestion = activeBlock?.block_type?.startsWith('soal_');
     const connected = socketStatus === 'open';
 
     async function goTo(index) {
         const target = ordered[index];
-        if (!target || target.id === activeIdRef.current) return;
+        if (!target || target.id === activeIdRef.current || goToBusy.current) return;
 
+        goToBusy.current = true;
+        const previousId = activeIdRef.current;
         activeIdRef.current = target.id;
         setActiveId(target.id);
         setReveal(false);
-        setAnswers([]);
         setError(null);
 
         try {
             await sendJson(urls.update, 'PATCH', { current_block_id: target.id, status: 'active' });
         } catch (caught) {
+            // PATCH gagal: database masih di slide lama. Kembalikan tampilan
+            // guru dan JANGAN siarkan state baru ke siswa.
+            activeIdRef.current = previousId;
+            setActiveId(previousId);
             setError(caught.message);
+            goToBusy.current = false;
+            return;
         }
 
         const sent = sendState(target.id, 'active');
         if (!sent) {
             setError('Koneksi realtime terputus. State akan disinkronkan ulang saat tersambung.');
         }
+        goToBusy.current = false;
     }
 
     async function endLive() {
@@ -166,7 +183,8 @@ export default function Stage({
 
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeIndex]);
 
     const progress = presence > 0 ? Math.min(100, Math.round((blockAnswers.length / presence) * 100)) : 0;
 
@@ -302,7 +320,7 @@ export default function Stage({
                                     <ul className="mt-3 max-h-40 space-y-1.5 overflow-y-auto pr-1">
                                         {[...blockAnswers].reverse().map((item, index) => (
                                             <li
-                                                key={`${item.at}-${index}`}
+                                                key={`${item.student_name}-${item.at ?? index}`}
                                                 className="flex items-start gap-2 rounded-md border border-zinc-800 bg-zinc-950/60 px-2.5 py-1.5 text-xs"
                                             >
                                                 <span className="font-medium text-zinc-200">{item.student_name}</span>

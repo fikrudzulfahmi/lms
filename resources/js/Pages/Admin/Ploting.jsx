@@ -55,7 +55,7 @@ export default function Ploting({
         if (!term) return teachers;
         return teachers.filter(
             (t) =>
-                t.name.toLowerCase().includes(term) ||
+                String(t.name ?? '').toLowerCase().includes(term) ||
                 String(t.username ?? '').toLowerCase().includes(term),
         );
     }, [matrixQuery, teachers]);
@@ -96,12 +96,14 @@ export default function Ploting({
             },
             {
                 preserveScroll: true,
+                onSuccess: () => setForm((current) => ({ ...current, classroom_ids: [] })),
                 onFinish: () => setSaving(false),
             },
         );
     }
 
     function removeAssignment(id) {
+        if (!window.confirm('Hapus ploting ini? Guru tidak lagi mengampu kelas tersebut pada mapel ini.')) return;
         router.delete(`/admin/ploting/${id}`, { preserveScroll: true });
     }
 
