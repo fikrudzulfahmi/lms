@@ -142,7 +142,7 @@ class TeacherStudioTest extends TestCase
                 ->component('Teacher/Modules/Edit')
                 ->where('module.id', $this->module->id)
                 ->has('blocks', 0)
-                ->has('block_types', 18)
+                ->has('block_types', 20)
                 ->has('urls.blocks'));
     }
 

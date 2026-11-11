@@ -221,6 +221,7 @@ export default function Room({
                             total={allBlocks.length}
                             onSubmitAnswer={submitAnswer}
                             initialAnswer={saved[activeBlock.id]?.answer ?? null}
+                            studentUploadUrl={urls?.upload ?? '/student/uploads'}
                         />
 
                         <div className="mt-3 min-h-8">

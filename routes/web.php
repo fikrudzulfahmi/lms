@@ -7,6 +7,7 @@ use App\Http\Controllers\Student\GradeController;
 use App\Http\Controllers\Student\HomeController as StudentHomeController;
 use App\Http\Controllers\Student\LiveController;
 use App\Http\Controllers\Student\PracticeController;
+use App\Http\Controllers\Student\UploadController;
 use App\Http\Controllers\SubjectController;
 use App\Http\Controllers\Teacher\AiCurriculumController;
 use App\Http\Controllers\Teacher\GradebookController;
@@ -15,6 +16,7 @@ use App\Http\Controllers\Teacher\ModuleBlockController;
 use App\Http\Controllers\Teacher\ModuleController;
 use App\Http\Controllers\Teacher\ModuleSlideController;
 use App\Http\Controllers\Teacher\ObjectiveController;
+use App\Http\Controllers\Teacher\SubmissionController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -116,6 +118,10 @@ Route::middleware('auth')->group(function () {
         Route::put('/objectives/{objective}', [ObjectiveController::class, 'update'])->name('objectives.update');
         Route::delete('/objectives/{objective}', [ObjectiveController::class, 'destroy'])->name('objectives.destroy');
 
+        // Pengumpulan Tugas Unggah (penilaian rubrik guru)
+        Route::get('/modules/{module}/submissions', [SubmissionController::class, 'index'])->name('modules.submissions.index');
+        Route::post('/modules/{module}/submissions/{submission}/grade', [SubmissionController::class, 'grade'])->name('modules.submissions.grade');
+
         // Buku Nilai (Gradebook) & ekspor CSV
         Route::get('/gradebook', [GradebookController::class, 'index'])->name('gradebook.index');
         Route::patch('/gradebook/modules/{module}/students/{student}/override', [GradebookController::class, 'override'])->name('gradebook.override');
@@ -137,6 +143,8 @@ Route::middleware('auth')->group(function () {
         Route::get('/modules/{module}/practice', [PracticeController::class, 'show'])->name('practice.show');
         Route::post('/modules/{module}/practice/progress', [PracticeController::class, 'markProgress'])->name('practice.progress');
         Route::post('/modules/{module}/practice/answers', [PracticeController::class, 'answer'])->name('practice.answer');
+        Route::post('/modules/{module}/practice/submissions', [PracticeController::class, 'submitAssignment'])->name('practice.submission');
+        Route::post('/uploads', [UploadController::class, 'store'])->name('uploads.store');
     });
 
     Route::prefix('live')->name('student.live.')->middleware('role:student')->group(function () {

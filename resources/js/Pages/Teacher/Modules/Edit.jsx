@@ -127,6 +127,27 @@ function defaultContent(type) {
                 question: 'Tulis pertanyaan polling untuk kelas...',
                 options: ['Opsi A', 'Opsi B'],
             };
+        case 'praktik_checklist':
+            return {
+                title: 'Checklist praktik baru',
+                instructions: '',
+                steps: [
+                    { label: 'Langkah pertama', require_photo: false },
+                    { label: 'Langkah kedua', require_photo: true },
+                ],
+            };
+        case 'tugas_upload':
+            return {
+                title: 'Tugas praktik baru',
+                instructions: '',
+                max_files: 3,
+                accept: 'file',
+                rubric: [
+                    { criterion: 'Ketepatan prosedur', max_score: 40 },
+                    { criterion: 'Hasil akhir', max_score: 40 },
+                    { criterion: 'Keselamatan kerja', max_score: 20 },
+                ],
+            };
         default:
             return {};
     }
@@ -134,8 +155,9 @@ function defaultContent(type) {
 
 function defaultPoints(type) {
     // Video interaktif berkelompok Materi tetapi dinilai per checkpoint,
-    // jadi ikut mendapat poin bawaan seperti blok soal.
-    return type.startsWith('soal_') || type === 'materi_video_interaktif' ? 10 : 0;
+    // jadi ikut mendapat poin bawaan seperti blok soal. Tugas unggah juga
+    // dinilai (rubrik guru diskalakan ke poin blok).
+    return type.startsWith('soal_') || type === 'materi_video_interaktif' || type === 'tugas_upload' ? 10 : 0;
 }
 
 async function apiRequest(url, method, body) {
@@ -669,6 +691,16 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
                             <span className="font-mono text-[11px] text-zinc-400">{timeLabel(savedAt)}</span>
                         )}
                     </div>
+
+                    {urls.submissions && (
+                        <Link
+                            href={urls.submissions}
+                            className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
+                            title="Lihat dan nilai pengumpulan blok Tugas Unggah pada modul ini"
+                        >
+                            Pengumpulan Tugas
+                        </Link>
+                    )}
 
                     {live?.stage_url ? (
                         <>

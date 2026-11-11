@@ -8,6 +8,7 @@ use App\Models\ClassroomStudent;
 use App\Models\LearningModule;
 use App\Models\ModuleBlock;
 use App\Models\ModuleProgress;
+use App\Models\Submission;
 use App\Models\TeachingAssignment;
 use App\Services\LiveSessionService;
 use Illuminate\Http\JsonResponse;
@@ -53,6 +54,15 @@ class PracticeController extends Controller
 
         $progress = $this->progressFor($request, $module);
 
+        $submissions = Submission::query()
+            ->where('student_id', $request->user()->id)
+            ->whereIn('module_block_id', $blocks->pluck('id'))
+            ->get()
+            ->mapWithKeys(fn (Submission $submission) => [
+                $submission->module_block_id => $this->submissionPayload($submission),
+            ])
+            ->all();
+
         return Inertia::render('Student/Practice/Show', [
             'module' => [
                 'id' => $module->id,
@@ -64,9 +74,12 @@ class PracticeController extends Controller
             ],
             'blocks' => $blocks,
             'progress' => $this->progressPayload($module, $progress),
+            'submissions' => $submissions,
             'urls' => [
                 'progress' => route('student.practice.progress', $module),
                 'answer' => route('student.practice.answer', $module),
+                'submission' => route('student.practice.submission', $module),
+                'upload' => route('student.uploads.store'),
                 'home' => route('student.home'),
             ],
         ]);
@@ -85,6 +98,18 @@ class PracticeController extends Controller
         if ($block->block_type === ModuleBlock::BLOCK_SECTION_HEADING) {
             throw ValidationException::withMessages([
                 'block_id' => 'Blok judul bagian tidak dihitung sebagai progres.',
+            ]);
+        }
+
+        if ($block->block_type === ModuleBlock::BLOCK_PRAKTIK_CHECKLIST) {
+            throw ValidationException::withMessages([
+                'block_id' => 'Checklist praktik selesai otomatis bila semua langkah tercentang dan foto wajib terunggah.',
+            ]);
+        }
+
+        if ($block->block_type === ModuleBlock::BLOCK_TUGAS_UPLOAD) {
+            throw ValidationException::withMessages([
+                'block_id' => 'Tugas unggah selesai dengan mengumpulkan tugas, bukan menandai selesai.',
             ]);
         }
 
@@ -133,8 +158,18 @@ class PracticeController extends Controller
 
         if ($block->block_type !== ModuleBlock::BLOCK_SECTION_HEADING) {
             $completed = array_map('strval', $progress->completed_blocks ?? []);
-            if (! in_array($block->id, $completed, true)) {
+
+            // Checklist praktik: selesai hanya bila SEMUA langkah tercentang
+            // dan semua foto wajib sudah terunggah; bila siswa membatalkan
+            // centang, status selesai ikut dicabut.
+            $isComplete = $block->block_type !== ModuleBlock::BLOCK_PRAKTIK_CHECKLIST
+                || $this->checklistComplete($block, $data['answer']);
+
+            if ($isComplete && ! in_array($block->id, $completed, true)) {
                 $completed[] = $block->id;
+            }
+            if (! $isComplete) {
+                $completed = array_values(array_diff($completed, [$block->id]));
             }
             $progress->completed_blocks = $completed;
         }
@@ -147,9 +182,136 @@ class PracticeController extends Controller
             'correct' => $grade['correct'],
             'earned_points' => $grade['earned_points'],
             'is_graded' => $grade['is_graded'],
+            'completed_blocks' => $payload['completed_blocks'],
             'percent' => $payload['percent'],
             'completed_at' => $payload['completed_at'],
         ]);
+    }
+
+    /**
+     * Kumpulkan (atau kumpulkan ulang) tugas unggah. Pengumpulan ulang
+     * mengosongkan nilai lama — guru menilai ulang dari awal.
+     */
+    public function submitAssignment(Request $request, LearningModule $module): JsonResponse
+    {
+        $this->accessibleModule($request, $module);
+
+        $data = $request->validate([
+            'block_id' => ['required', 'string'],
+            'files' => ['required', 'array', 'min:1', 'max:5'],
+            'files.*.name' => ['required', 'string', 'max:255'],
+            'files.*.url' => ['required', 'string', 'max:2048'],
+            'files.*.size' => ['nullable', 'integer', 'min:0'],
+            'note' => ['nullable', 'string', 'max:5000'],
+        ]);
+
+        $block = $this->findBlock($module, $data['block_id']);
+
+        if ($block->block_type !== ModuleBlock::BLOCK_TUGAS_UPLOAD) {
+            throw ValidationException::withMessages([
+                'block_id' => 'Blok ini bukan tugas unggah.',
+            ]);
+        }
+
+        $maxFiles = max(1, min(5, (int) ($block->content['max_files'] ?? 3)));
+
+        if (count($data['files']) > $maxFiles) {
+            throw ValidationException::withMessages([
+                'files' => "Tugas ini menerima maksimal {$maxFiles} berkas.",
+            ]);
+        }
+
+        // Siswa hanya boleh menautkan berkas dari folder unggahannya sendiri.
+        $ownPrefix = '/storage/student-uploads/'.$request->user()->id.'/';
+
+        foreach ($data['files'] as $file) {
+            if (! str_starts_with((string) ($file['url'] ?? ''), $ownPrefix)) {
+                throw ValidationException::withMessages([
+                    'files' => 'Berkas harus berasal dari unggahanmu sendiri.',
+                ]);
+            }
+        }
+
+        $submission = Submission::query()->updateOrCreate(
+            [
+                'module_block_id' => $block->id,
+                'student_id' => $request->user()->id,
+            ],
+            [
+                'files' => array_values(array_map(fn ($file) => [
+                    'name' => (string) $file['name'],
+                    'url' => (string) $file['url'],
+                    'size' => (int) ($file['size'] ?? 0),
+                ], $data['files'])),
+                'note' => $data['note'] ?? null,
+                'status' => Submission::STATUS_SUBMITTED,
+                'rubric_scores' => null,
+                'feedback' => null,
+                'score' => null,
+                'graded_by' => null,
+                'graded_at' => null,
+            ],
+        );
+
+        $progress = $this->progressFor($request, $module, create: true);
+        $completed = array_map('strval', $progress->completed_blocks ?? []);
+        if (! in_array($block->id, $completed, true)) {
+            $completed[] = $block->id;
+        }
+        $progress->completed_blocks = $completed;
+        $this->syncCompletion($module, $progress);
+
+        $payload = $this->progressPayload($module, $progress->fresh());
+
+        return response()->json([
+            'submission' => $this->submissionPayload($submission->fresh()),
+            'percent' => $payload['percent'],
+            'completed_at' => $payload['completed_at'],
+        ]);
+    }
+
+    /**
+     * Checklist lengkap = semua indeks langkah ada di daftar centang dan
+     * setiap langkah wajib foto punya URL foto pada indeks yang sama.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function checklistComplete(ModuleBlock $block, array $payload): bool
+    {
+        $steps = array_values((array) ($block->content['steps'] ?? []));
+        $checked = array_map('intval', (array) ($payload['checked'] ?? []));
+        $photos = (array) ($payload['photos'] ?? []);
+
+        foreach ($steps as $index => $step) {
+            if (! in_array($index, $checked, true)) {
+                return false;
+            }
+
+            if ((bool) ($step['require_photo'] ?? false)
+                && trim((string) ($photos[(string) $index] ?? $photos[$index] ?? '')) === '') {
+                return false;
+            }
+        }
+
+        return $steps !== [];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function submissionPayload(Submission $submission): array
+    {
+        return [
+            'id' => $submission->id,
+            'files' => $submission->files ?? [],
+            'note' => $submission->note,
+            'status' => $submission->status,
+            'score' => $submission->score,
+            'rubric_scores' => $submission->rubric_scores,
+            'feedback' => $submission->feedback,
+            'graded_at' => $submission->graded_at?->toIso8601String(),
+            'updated_at' => $submission->updated_at?->toIso8601String(),
+        ];
     }
 
     /**

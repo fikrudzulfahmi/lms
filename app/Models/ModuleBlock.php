@@ -52,6 +52,10 @@ class ModuleBlock extends Model
 
     public const BLOCK_POLLING = 'polling';
 
+    public const BLOCK_PRAKTIK_CHECKLIST = 'praktik_checklist';
+
+    public const BLOCK_TUGAS_UPLOAD = 'tugas_upload';
+
     public const BLOCK_TYPES = [
         self::BLOCK_SECTION_HEADING,
         self::BLOCK_MATERI_RICHTEXT,
@@ -71,6 +75,8 @@ class ModuleBlock extends Model
         self::BLOCK_SOAL_HOTSPOT,
         self::BLOCK_MATERI_VIDEO_INTERAKTIF,
         self::BLOCK_POLLING,
+        self::BLOCK_PRAKTIK_CHECKLIST,
+        self::BLOCK_TUGAS_UPLOAD,
     ];
 
     /**
@@ -95,5 +101,10 @@ class ModuleBlock extends Model
     public function responses(): HasMany
     {
         return $this->hasMany(StudentResponse::class, 'module_block_id');
+    }
+
+    public function submissions(): HasMany
+    {
+        return $this->hasMany(Submission::class, 'module_block_id');
     }
 }

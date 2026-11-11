@@ -35,14 +35,21 @@ function needsManualDone(block) {
     return (
         block.block_type !== 'section_heading' &&
         !block.block_type.startsWith('soal_') &&
-        block.block_type !== 'polling'
+        block.block_type !== 'polling' &&
+        // Checklist selesai otomatis dari kondisi centang + foto wajib;
+        // tugas unggah selesai lewat pengumpulan, bukan tombol ini.
+        block.block_type !== 'praktik_checklist' &&
+        block.block_type !== 'tugas_upload'
     );
 }
 
-export default function PracticeShow({ module, blocks = [], progress = {}, urls = {} }) {
+export default function PracticeShow({ module, blocks = [], progress = {}, submissions: initialSubmissions = {}, urls = {} }) {
     const initialAnswers =
         progress.answers && !Array.isArray(progress.answers) ? progress.answers : {};
 
+    const [submissions, setSubmissions] = useState(() =>
+        initialSubmissions && !Array.isArray(initialSubmissions) ? initialSubmissions : {},
+    );
     const [completedBlocks, setCompletedBlocks] = useState(() => progress.completed_blocks ?? []);
     const [answers, setAnswers] = useState(initialAnswers);
     const [percent, setPercent] = useState(() => progress.percent ?? 0);
@@ -101,6 +108,41 @@ export default function PracticeShow({ module, blocks = [], progress = {}, urls 
                         earned_points: payload.earned_points ?? 0,
                     },
                 }));
+                // Daftar blok selesai dari server bersifat otoritatif —
+                // checklist praktik misalnya hanya selesai bila semua langkah
+                // + foto wajib terpenuhi, bukan setiap kali jawaban tersimpan.
+                if (Array.isArray(payload.completed_blocks)) {
+                    setCompletedBlocks(payload.completed_blocks);
+                } else {
+                    setCompletedBlocks((current) =>
+                        current.includes(block.id) ? current : [...current, block.id],
+                    );
+                }
+                if (typeof payload.percent === 'number') setPercent(payload.percent);
+                if ('completed_at' in payload) setCompletedAt(payload.completed_at);
+                setError(null);
+
+                // Kontrak blok soal mode latihan: {saved, correct}.
+                return { saved: true, correct: payload.correct ?? null };
+            } catch (caught) {
+                setError(caught.message);
+                return false;
+            }
+        };
+    }
+
+    function submitAssignmentFor(block) {
+        return async ({ files, note }) => {
+            try {
+                const payload = await postJson(urls.submission, {
+                    block_id: block.id,
+                    files,
+                    note,
+                });
+
+                if (payload.submission) {
+                    setSubmissions((current) => ({ ...current, [block.id]: payload.submission }));
+                }
                 setCompletedBlocks((current) =>
                     current.includes(block.id) ? current : [...current, block.id],
                 );
@@ -108,8 +150,7 @@ export default function PracticeShow({ module, blocks = [], progress = {}, urls 
                 if ('completed_at' in payload) setCompletedAt(payload.completed_at);
                 setError(null);
 
-                // Kontrak blok soal mode latihan: {saved, correct}.
-                return { saved: true, correct: payload.correct ?? null };
+                return payload;
             } catch (caught) {
                 setError(caught.message);
                 return false;
@@ -199,6 +240,9 @@ export default function PracticeShow({ module, blocks = [], progress = {}, urls 
                                 initialCorrect={
                                     typeof savedAnswer?.correct === 'boolean' ? savedAnswer.correct : null
                                 }
+                                studentUploadUrl={urls.upload}
+                                submission={submissions[block.id] ?? null}
+                                onSubmitAssignment={submitAssignmentFor(block)}
                             />
 
                             {needsManualDone(block) && (

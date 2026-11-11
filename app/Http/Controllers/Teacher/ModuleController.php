@@ -170,6 +170,7 @@ class ModuleController
                 'slides' => route('teacher.modules.slides.store', $module),
                 'ai_generate' => route('teacher.modules.ai.generate', $module),
                 'ai_status' => route('teacher.modules.ai.status', $module),
+                'submissions' => route('teacher.modules.submissions.index', $module),
             ],
         ]);
     }
@@ -256,6 +257,8 @@ class ModuleController
             ['value' => 'soal_hotspot', 'label' => 'Labeli Gambar / Hotspot', 'group' => 'Soal'],
             ['value' => 'soal_essay_ai', 'label' => 'Studi Kasus Esai', 'group' => 'Soal'],
             ['value' => 'polling', 'label' => 'Polling Kilat', 'group' => 'Soal'],
+            ['value' => 'praktik_checklist', 'label' => 'Checklist Praktik', 'group' => 'Praktik'],
+            ['value' => 'tugas_upload', 'label' => 'Tugas Unggah', 'group' => 'Praktik'],
         ];
     }
 }
