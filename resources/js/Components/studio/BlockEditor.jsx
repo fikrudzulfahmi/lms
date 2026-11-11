@@ -95,6 +95,7 @@ export default function BlockEditor({
     block,
     onChange,
     onDelete,
+    onDuplicate,
     onMove,
     onSlidesImported,
     uploadUrl,
@@ -323,6 +324,11 @@ export default function BlockEditor({
                     >
                         ↓
                     </IconButton>
+                    {onDuplicate && (
+                        <IconButton label="Duplikat blok" onClick={onDuplicate}>
+                            Duplikat
+                        </IconButton>
+                    )}
                     <IconButton label="Hapus blok" onClick={onDelete} danger>
                         Hapus
                     </IconButton>

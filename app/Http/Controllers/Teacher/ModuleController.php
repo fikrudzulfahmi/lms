@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Teacher;
 
+use App\Http\Requests\DuplicateModuleRequest;
 use App\Http\Requests\StoreModuleRequest;
 use App\Http\Requests\UpdateLearningModuleRequest;
 use App\Models\AcademicYear;
@@ -14,6 +15,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -98,6 +100,59 @@ class ModuleController
         return redirect()
             ->route('teacher.modules.edit', $module)
             ->with('success', 'Modul dibuat. Mulai susun blok materi.');
+    }
+
+    public function duplicate(DuplicateModuleRequest $request, LearningModule $module): RedirectResponse
+    {
+        $data = $request->validated();
+
+        $targetAssignment = isset($data['teaching_assignment_id'])
+            ? TeachingAssignment::findOrFail($data['teaching_assignment_id'])
+            : $module->teachingAssignment;
+
+        $title = isset($data['title']) && trim((string) $data['title']) !== ''
+            ? trim((string) $data['title'])
+            : $module->title.' (Salinan)';
+
+        $copy = DB::transaction(function () use ($module, $targetAssignment, $title): LearningModule {
+            // TP hanya dipertahankan bila mapel tujuan sama; TP mapel lain
+            // akan menyesatkan pemetaan capaian dan generate AI.
+            $sameSubject = $targetAssignment !== null
+                && $targetAssignment->subject_id === $module->teachingAssignment?->subject_id;
+
+            $copy = LearningModule::create([
+                'teaching_assignment_id' => $targetAssignment?->id ?? $module->teaching_assignment_id,
+                'learning_objective_id' => $sameSubject ? $module->learning_objective_id : null,
+                'title' => $title,
+                'assessment_type' => $module->assessment_type,
+                'kktp_score' => $module->kktp_score,
+                'max_attempts' => $module->max_attempts,
+                'status' => LearningModule::STATUS_DRAFT,
+                'allow_practice' => $module->allow_practice,
+                'settings' => $module->settings,
+            ]);
+
+            $blocks = $module->blocks()
+                ->orderBy('order_index')
+                ->orderBy('created_at')
+                ->get();
+
+            foreach ($blocks as $block) {
+                $copy->blocks()->create([
+                    'order_index' => $block->order_index,
+                    'block_type' => $block->block_type,
+                    'points' => $block->points,
+                    'content' => $block->content,
+                    'ai_rubric' => $block->ai_rubric,
+                ]);
+            }
+
+            return $copy;
+        });
+
+        return redirect()
+            ->route('teacher.modules.edit', $copy)
+            ->with('success', 'Modul diduplikasi sebagai draft. Periksa dan terbitkan bila sudah siap.');
     }
 
     public function edit(Request $request, LearningModule $module): Response
@@ -196,6 +251,7 @@ class ModuleController
     {
         return [
             'id' => $module->id,
+            'teaching_assignment_id' => $module->teaching_assignment_id,
             'title' => $module->title,
             'status' => $module->status,
             'assessment_type' => $module->assessment_type,

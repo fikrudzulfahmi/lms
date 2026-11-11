@@ -515,6 +515,32 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
         }
     }
 
+    async function duplicateBlock(source) {
+        setSaveError(null);
+        setSaveState('saving');
+
+        try {
+            const payload = await apiRequest(urls.blocks, 'POST', {
+                block_type: source.block_type,
+                points: Number(source.points) || 0,
+                content: source.content ?? {},
+                ai_rubric: source.ai_rubric ?? null,
+            });
+
+            const current = blocksRef.current;
+            const index = current.findIndex((block) => block.id === source.id);
+            const next = [...current];
+            next.splice(index < 0 ? next.length : index + 1, 0, payload.block);
+            setSelectedId(payload.block.id);
+
+            // Blok baru dibuat di akhir oleh server; susun ulang agar persis
+            // berada di bawah blok asal (rollback ditangani persistOrder).
+            persistOrder(next);
+        } catch (error) {
+            markError(error);
+        }
+    }
+
     async function deleteBlock(id) {
         if (!window.confirm('Hapus blok ini? Tindakan tidak dapat dibatalkan.')) return;
 
@@ -960,6 +986,7 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
                                     total={blocks.length}
                                     onChange={(patch) => updateBlock(block.id, patch)}
                                     onDelete={() => deleteBlock(block.id)}
+                                    onDuplicate={() => duplicateBlock(block)}
                                     onMove={moveBlock}
                                     onSlidesImported={importSlidesToBlocks}
                                     uploadUrl={urls.slides}
@@ -1141,8 +1168,9 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
                     </Field>
 
                     <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">
-                        AI menyusun materi, soal pilihan ganda, urutan prosedur, dan esai beserta rubrik
-                        rahasia. Periksa kembali fakta teknis dan kesesuaian SOP sebelum menerbitkan modul.
+                        AI menyusun judul bagian, materi teks, soal pilihan ganda, benar/salah, isian
+                        singkat, urutan prosedur, polling, dan esai beserta rubrik rahasia. Periksa kembali
+                        fakta teknis dan kesesuaian SOP sebelum menerbitkan modul.
                     </div>
                 </div>
             </Modal>
