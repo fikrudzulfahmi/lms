@@ -18,15 +18,24 @@ use Illuminate\Support\Facades\Http;
  */
 class AiCurriculumService
 {
-    /** Tipe blok yang boleh dihasilkan AI (slide gambar tidak, itu upload guru). */
+    /**
+     * Tipe blok yang boleh dihasilkan AI. Tipe yang butuh aset nyata atau
+     * konteks guru (video, berkas, embed, hotspot, video interaktif,
+     * checklist praktik, tugas unggah, slide gambar) sengaja TIDAK di sini.
+     */
     public const AI_BLOCK_TYPES = [
+        ModuleBlock::BLOCK_SECTION_HEADING,
         ModuleBlock::BLOCK_MATERI_TEKS,
+        ModuleBlock::BLOCK_MATERI_RICHTEXT,
         ModuleBlock::BLOCK_MATERI_ACCORDION,
         ModuleBlock::BLOCK_MATERI_FLASHCARD,
         ModuleBlock::BLOCK_SOAL_MCQ,
+        ModuleBlock::BLOCK_SOAL_TRUEFALSE,
+        ModuleBlock::BLOCK_SOAL_FILLBLANK,
         ModuleBlock::BLOCK_SOAL_SEQUENCING,
         ModuleBlock::BLOCK_SOAL_MATCHING,
         ModuleBlock::BLOCK_SOAL_ESSAY_AI,
+        ModuleBlock::BLOCK_POLLING,
     ];
 
     /**
@@ -46,18 +55,26 @@ SKEMA ENVELOPE:
 {"b":[{"t":"<tipe>","pts":<integer>,"c":{...},"rub":"<rubrik, hanya esai>"}]}
 
 SKEMA PER TIPE (key pendek):
+- section_heading: {"t":"section_heading","pts":0,"c":{"h":"judul bagian","txt":"deskripsi singkat isi bagian ini (opsional, 1 kalimat)"}}
 - materi_teks: {"t":"materi_teks","pts":0,"c":{"h":"judul max 180 karakter","txt":"2-5 paragraf materi, pisahkan paragraf dengan \n\n"}}
+- materi_richtext: {"t":"materi_richtext","pts":0,"c":{"h":"judul (opsional)","txt":"isi materi dengan markdown ringan: **tebal**, *miring*, daftar diawali '- ', baris kosong untuk paragraf baru. TANPA tag HTML."}}
 - materi_accordion: {"t":"materi_accordion","pts":0,"c":{"h":"judul","items":[{"lbl":"nama langkah/komponen","txt":"penjelasan 1-4 kalimat"}]}} (2-8 item, urut SOP)
 - materi_flashcard: {"t":"materi_flashcard","pts":0,"c":{"h":"judul","cards":[{"f":"istilah/pertanyaan","b":"jawaban singkat"}]}} (minimal 4 kartu)
 - soal_mcq: {"t":"soal_mcq","pts":10,"c":{"q":"pertanyaan","options":[{"t":"teks opsi","correct":true}],"explanation":"pembahasan singkat"}} (4-5 opsi, TEPAT satu correct=true)
+- soal_truefalse: {"t":"soal_truefalse","pts":10,"c":{"q":"satu pernyataan faktual","answer":true,"explanation":"pembahasan singkat"}} (answer adalah boolean JSON true/false: kunci pernyataan itu benar atau salah; buat campuran pernyataan benar dan salah)
+- soal_fillblank: {"t":"soal_fillblank","pts":10,"c":{"q":"kalimat soal dengan ___ sebagai titik isian","answers":["jawaban utama","variasi jawaban lain yang diterima"],"explanation":"pembahasan singkat"}} (answers minimal 1, sertakan variasi ejaan/singkatan yang wajar)
 - soal_sequencing: {"t":"soal_sequencing","pts":10,"c":{"q":"perintah mengurutkan","steps":["langkah 1","langkah 2"],"explanation":"pembahasan"}} (3-6 langkah, array sudah dalam urutan benar)
 - soal_matching: {"t":"soal_matching","pts":10,"c":{"q":"perintah mencocokkan","pairs":[{"left":"komponen","right":"fungsi"}],"explanation":"pembahasan"}} (3-6 pasangan)
 - soal_essay_ai: {"t":"soal_essay_ai","pts":20,"rub":"kunci konteks dan kriteria penilaian rahasia yang spesifik","c":{"q":"studi kasus","min_words":40}}
+- polling: {"t":"polling","pts":0,"c":{"q":"pertanyaan apersepsi/refleksi cepat","options":["opsi 1","opsi 2","opsi 3"]}} (2-6 opsi teks singkat, TANPA jawaban benar, tanpa nilai)
 
 Kualitas:
 - Judul materi spesifik, bukan "Materi Pembelajaran".
 - Accordion dan sequencing mencerminkan urutan kerja nyata di bengkel/lab.
 - Esai berupa studi kasus diagnosa yang menuntut penalaran, bukan definisi.
+- Campuran tipe harus seimbang: buka modul dengan section_heading sebagai pembuka bagian, lalu materi, lalu soal. section_heading maksimal 2 per susunan.
+- soal_truefalse dan soal_fillblank masing-masing maksimal 2 blok per susunan; jangan jadikan keduanya jenis soal utama — variasikan dengan pilihan ganda.
+- polling maksimal 1 per susunan, hanya untuk apersepsi atau refleksi, bukan asesmen.
 PROMPT;
 
     private const GRADER_SYSTEM_PROMPT = <<<'PROMPT'
@@ -356,15 +373,136 @@ PROMPT;
     private function expandContent(string $type, array $c): ?array
     {
         return match ($type) {
+            ModuleBlock::BLOCK_SECTION_HEADING => $this->sectionHeadingContent($c),
             ModuleBlock::BLOCK_MATERI_TEKS => $this->textContent($c),
+            ModuleBlock::BLOCK_MATERI_RICHTEXT => $this->richtextContent($c),
             ModuleBlock::BLOCK_MATERI_ACCORDION => $this->accordionContent($c),
             ModuleBlock::BLOCK_MATERI_FLASHCARD => $this->flashcardContent($c),
             ModuleBlock::BLOCK_SOAL_MCQ => $this->mcqContent($c),
+            ModuleBlock::BLOCK_SOAL_TRUEFALSE => $this->trueFalseContent($c),
+            ModuleBlock::BLOCK_SOAL_FILLBLANK => $this->fillBlankContent($c),
             ModuleBlock::BLOCK_SOAL_SEQUENCING => $this->sequencingContent($c),
             ModuleBlock::BLOCK_SOAL_MATCHING => $this->matchingContent($c),
             ModuleBlock::BLOCK_SOAL_ESSAY_AI => $this->essayContent($c),
+            ModuleBlock::BLOCK_POLLING => $this->pollingContent($c),
             default => null,
         };
+    }
+
+    /**
+     * @param  array<string, mixed>  $c
+     * @return array<string, string>|null
+     */
+    private function sectionHeadingContent(array $c): ?array
+    {
+        $title = $this->pick($c, ['h', 'title'], 180);
+        $body = $this->pick($c, ['txt', 'body', 'description'], 2000);
+
+        return $title !== '' ? ['title' => $title, 'body' => $body] : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $c
+     * @return array<string, string>|null
+     */
+    private function richtextContent(array $c): ?array
+    {
+        $title = $this->pick($c, ['h', 'title'], 180);
+        $body = $this->pick($c, ['txt', 'body', 'text'], 20000);
+
+        if ($body === '') {
+            return null;
+        }
+
+        // Teks kaya dirender dari markdown ringan; tag HTML dari LLM dibuang
+        // agar tidak pernah tersimpan sebagai markup mentah.
+        $body = trim(strip_tags($body));
+
+        return $body !== '' ? ['title' => $title, 'body' => $body] : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $c
+     * @return array<string, mixed>|null
+     */
+    private function trueFalseContent(array $c): ?array
+    {
+        $question = $this->pick($c, ['q', 'question'], 5000);
+        $answer = $c['answer'] ?? $c['correct'] ?? null;
+
+        if (is_string($answer)) {
+            $answer = match (strtolower(trim($answer))) {
+                'true', 'benar', '1' => true,
+                'false', 'salah', '0' => false,
+                default => null,
+            };
+        } elseif (is_int($answer)) {
+            $answer = $answer === 1 ? true : ($answer === 0 ? false : null);
+        }
+
+        if ($question === '' || ! is_bool($answer)) {
+            return null;
+        }
+
+        return [
+            'question' => $question,
+            'answer' => $answer,
+            'explanation' => $this->pick($c, ['explanation', 'pembahasan'], 5000),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $c
+     * @return array<string, mixed>|null
+     */
+    private function fillBlankContent(array $c): ?array
+    {
+        $question = $this->pick($c, ['q', 'question'], 5000);
+        $answers = [];
+
+        foreach ((array) ($c['answers'] ?? $c['answer_keys'] ?? []) as $answer) {
+            if (is_string($answer) && trim($answer) !== '') {
+                $answers[] = mb_substr(trim($answer), 0, 500);
+            }
+        }
+
+        $answers = array_values(array_unique(array_slice($answers, 0, 10)));
+
+        if ($question === '' || $answers === []) {
+            return null;
+        }
+
+        return [
+            'question' => $question,
+            'answers' => $answers,
+            'explanation' => $this->pick($c, ['explanation', 'pembahasan'], 5000),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $c
+     * @return array<string, mixed>|null
+     */
+    private function pollingContent(array $c): ?array
+    {
+        $question = $this->pick($c, ['q', 'question'], 5000);
+        $options = [];
+
+        foreach ((array) ($c['options'] ?? []) as $option) {
+            $text = is_array($option)
+                ? $this->pick($option, ['t', 'text', 'label'], 1000)
+                : (is_string($option) ? mb_substr(trim($option), 0, 1000) : '');
+
+            if ($text !== '') {
+                $options[] = $text;
+            }
+        }
+
+        $options = array_slice($options, 0, 6);
+
+        return $question !== '' && count($options) >= 2
+            ? ['question' => $question, 'options' => $options]
+            : null;
     }
 
     /**

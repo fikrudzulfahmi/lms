@@ -38,6 +38,32 @@ export default function Index({
         max_attempts: 1,
     });
 
+    const [duplicateTarget, setDuplicateTarget] = useState(null);
+
+    const duplicateForm = useForm({
+        teaching_assignment_id: '',
+        title: '',
+    });
+
+    function openDuplicate(module) {
+        setDuplicateTarget(module);
+        duplicateForm.reset();
+        duplicateForm.clearErrors();
+        duplicateForm.setData({
+            teaching_assignment_id: module.teaching_assignment_id ?? assignments[0]?.id ?? '',
+            title: `${module.title} (Salinan)`,
+        });
+    }
+
+    function submitDuplicate(event) {
+        event.preventDefault();
+        if (!duplicateTarget) return;
+
+        duplicateForm.post(`/teacher/modules/${duplicateTarget.id}/duplicate`, {
+            preserveScroll: true,
+        });
+    }
+
     const filtered = useMemo(() => {
         const term = query.trim().toLowerCase();
 
@@ -197,15 +223,25 @@ export default function Index({
                                         </td>
                                         <td className="px-4 py-3 text-xs text-zinc-500">{formatDate(module.updated_at)}</td>
                                         <td className="px-4 py-3 text-right">
-                                            <Link
-                                                href={`/teacher/modules/${module.id}/edit`}
-                                                className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors group-hover:border-emerald-300 group-hover:text-emerald-700 hover:bg-emerald-50"
-                                            >
-                                                Buka Studio
-                                                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
-                                                </svg>
-                                            </Link>
+                                            <div className="flex items-center justify-end gap-1.5">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openDuplicate(module)}
+                                                    className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:border-emerald-300 hover:text-emerald-700 hover:bg-emerald-50"
+                                                    title="Salin modul ini beserta semua bloknya sebagai draft baru"
+                                                >
+                                                    Duplikat
+                                                </button>
+                                                <Link
+                                                    href={`/teacher/modules/${module.id}/edit`}
+                                                    className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors group-hover:border-emerald-300 group-hover:text-emerald-700 hover:bg-emerald-50"
+                                                >
+                                                    Buka Studio
+                                                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+                                                    </svg>
+                                                </Link>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
@@ -303,6 +339,58 @@ export default function Index({
                             {filteredObjectives.map((objective) => (
                                 <option key={objective.id} value={objective.id}>
                                     {objective.code} — {String(objective.description ?? '').slice(0, 90)}
+                                </option>
+                            ))}
+                        </select>
+                    </Field>
+                </form>
+            </Modal>
+
+            <Modal
+                open={duplicateTarget !== null}
+                title="Duplikat modul"
+                subtitle={
+                    duplicateTarget
+                        ? `Salin "${duplicateTarget.title}" beserta semua bloknya. Hasilnya selalu berstatus draft.`
+                        : ''
+                }
+                onClose={() => setDuplicateTarget(null)}
+                footer={
+                    <>
+                        <Button variant="ghost" onClick={() => setDuplicateTarget(null)}>
+                            Batal
+                        </Button>
+                        <Button onClick={submitDuplicate} disabled={duplicateForm.processing}>
+                            {duplicateForm.processing ? 'Menyalin...' : 'Duplikat & Buka Studio'}
+                        </Button>
+                    </>
+                }
+            >
+                <form onSubmit={submitDuplicate} className="space-y-3">
+                    <Field label="Judul modul baru" error={duplicateForm.errors.title}>
+                        <input
+                            value={duplicateForm.data.title}
+                            onChange={(event) => duplicateForm.setData('title', event.target.value)}
+                            className={inputClass}
+                            maxLength={180}
+                        />
+                    </Field>
+
+                    <Field
+                        label="Kelas & mata pelajaran tujuan"
+                        error={duplicateForm.errors.teaching_assignment_id}
+                        hint="Pilih kelas lain bila salinan ini untuk rombel/mapel lain yang Anda ampu."
+                    >
+                        <select
+                            value={duplicateForm.data.teaching_assignment_id}
+                            onChange={(event) =>
+                                duplicateForm.setData('teaching_assignment_id', event.target.value)
+                            }
+                            className={selectClass}
+                        >
+                            {assignments.map((assignment) => (
+                                <option key={assignment.id} value={assignment.id}>
+                                    {assignment.subject_code} · {assignment.subject} — {assignment.classroom}
                                 </option>
                             ))}
                         </select>
