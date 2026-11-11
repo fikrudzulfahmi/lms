@@ -5,10 +5,13 @@ namespace App\Http\Controllers\Teacher;
 use App\Http\Requests\ReorderModuleBlocksRequest;
 use App\Http\Requests\StoreModuleBlockRequest;
 use App\Http\Requests\UpdateModuleBlockRequest;
+use App\Http\Requests\UploadModuleAssetRequest;
 use App\Models\LearningModule;
 use App\Models\ModuleBlock;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class ModuleBlockController
 {
@@ -30,6 +33,23 @@ class ModuleBlockController
             'block' => $this->serialize($block),
             'saved_at' => now()->toIso8601String(),
         ], 201);
+    }
+
+    public function uploadAsset(UploadModuleAssetRequest $request, LearningModule $module): JsonResponse
+    {
+        $file = $request->file('file');
+
+        $path = $file->storeAs(
+            'modules/'.$module->id.'/assets',
+            Str::uuid().'.'.strtolower($file->getClientOriginalExtension()),
+            'public',
+        );
+
+        return response()->json([
+            'url' => Storage::disk('public')->url($path),
+            'name' => $file->getClientOriginalName(),
+            'size' => $file->getSize(),
+        ]);
     }
 
     public function update(

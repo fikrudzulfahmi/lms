@@ -16,6 +16,16 @@ class ModuleBlock extends Model
     /** @use HasFactory<ModuleBlockFactory> */
     use HasFactory, HasUuids;
 
+    public const BLOCK_SECTION_HEADING = 'section_heading';
+
+    public const BLOCK_MATERI_RICHTEXT = 'materi_richtext';
+
+    public const BLOCK_MATERI_VIDEO = 'materi_video';
+
+    public const BLOCK_MATERI_FILE = 'materi_file';
+
+    public const BLOCK_MATERI_EMBED = 'materi_embed';
+
     public const BLOCK_MATERI_TEKS = 'materi_teks';
 
     public const BLOCK_MATERI_ACCORDION = 'materi_accordion';
@@ -23,6 +33,10 @@ class ModuleBlock extends Model
     public const BLOCK_MATERI_FLASHCARD = 'materi_flashcard';
 
     public const BLOCK_SLIDE_IMAGE = 'slide_image';
+
+    public const BLOCK_SOAL_TRUEFALSE = 'soal_truefalse';
+
+    public const BLOCK_SOAL_FILLBLANK = 'soal_fillblank';
 
     public const BLOCK_SOAL_MCQ = 'soal_mcq';
 
@@ -32,15 +46,31 @@ class ModuleBlock extends Model
 
     public const BLOCK_SOAL_ESSAY_AI = 'soal_essay_ai';
 
+    public const BLOCK_SOAL_HOTSPOT = 'soal_hotspot';
+
+    public const BLOCK_MATERI_VIDEO_INTERAKTIF = 'materi_video_interaktif';
+
+    public const BLOCK_POLLING = 'polling';
+
     public const BLOCK_TYPES = [
+        self::BLOCK_SECTION_HEADING,
+        self::BLOCK_MATERI_RICHTEXT,
+        self::BLOCK_MATERI_VIDEO,
+        self::BLOCK_MATERI_FILE,
+        self::BLOCK_MATERI_EMBED,
         self::BLOCK_MATERI_TEKS,
         self::BLOCK_MATERI_ACCORDION,
         self::BLOCK_MATERI_FLASHCARD,
         self::BLOCK_SLIDE_IMAGE,
         self::BLOCK_SOAL_MCQ,
+        self::BLOCK_SOAL_TRUEFALSE,
+        self::BLOCK_SOAL_FILLBLANK,
         self::BLOCK_SOAL_SEQUENCING,
         self::BLOCK_SOAL_MATCHING,
         self::BLOCK_SOAL_ESSAY_AI,
+        self::BLOCK_SOAL_HOTSPOT,
+        self::BLOCK_MATERI_VIDEO_INTERAKTIF,
+        self::BLOCK_POLLING,
     ];
 
     /**

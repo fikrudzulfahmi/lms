@@ -12,14 +12,24 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 const MODES = ['editor_guru', 'live_proyektor', 'live_hp_siswa', 'mandiri_siswa'];
 
 const BLOCK_LABELS = {
+    section_heading: 'Judul Bagian',
+    materi_richtext: 'Teks Kaya',
+    materi_video: 'Video',
+    materi_file: 'Lampiran Berkas',
+    materi_embed: 'Tautan / Embed',
     materi_teks: 'Teks Materi',
     materi_accordion: 'Accordion SOP',
     materi_flashcard: 'Flashcard',
     slide_image: 'Slide Gambar',
     soal_mcq: 'Pilihan Ganda',
+    soal_truefalse: 'Benar / Salah',
+    soal_fillblank: 'Isian Singkat',
     soal_sequencing: 'Urutan Prosedur',
     soal_matching: 'Mencocokkan',
     soal_essay_ai: 'Studi Kasus Esai',
+    soal_hotspot: 'Labeli Gambar / Hotspot',
+    materi_video_interaktif: 'Video Interaktif',
+    polling: 'Polling Kilat',
 };
 
 function text(value, fallback = '') {
@@ -73,7 +83,164 @@ function normalize(content = {}) {
             : [],
         rights: Array.isArray(c.rights) ? c.rights.map((right) => text(right)).filter(Boolean) : [],
         keyless: Boolean(c.keyless),
+        files: Array.isArray(c.files)
+            ? c.files
+                  .map((file) => ({
+                      name: text(file?.name ?? file?.filename),
+                      url: imageSource(file?.url),
+                      size: Number(file?.size) || 0,
+                  }))
+                  .filter((file) => file.url)
+            : [],
+        source: text(c.source),
+        embed: Boolean(c.embed),
+        answerKey: typeof c.answer === 'boolean' ? c.answer : null,
+        answers: Array.isArray(c.answers) ? c.answers.map((answer) => text(answer)).filter(Boolean) : [],
+        imageUrl: imageSource(c.image_url ?? c.imageUrl),
+        spots: Array.isArray(c.spots)
+            ? c.spots.map((spot) => ({
+                  x: Number(spot?.x) || 0,
+                  y: Number(spot?.y) || 0,
+                  label: text(spot?.label),
+              }))
+            : [],
+        labels: Array.isArray(c.labels) ? c.labels.map((label) => text(label)).filter(Boolean) : [],
+        checkpoints: Array.isArray(c.checkpoints)
+            ? c.checkpoints.map((checkpoint) => ({
+                  at: Math.max(0, Math.floor(Number(checkpoint?.at) || 0)),
+                  question: text(checkpoint?.question),
+                  options: Array.isArray(checkpoint?.options)
+                      ? checkpoint.options.map((option) =>
+                            typeof option === 'string'
+                                ? { text: option }
+                                : { text: text(option?.text ?? option?.label) },
+                        )
+                      : [],
+                  correctIndex:
+                      Number.isInteger(checkpoint?.correct_index) || Number.isInteger(checkpoint?.correctIndex)
+                          ? (checkpoint.correct_index ?? checkpoint.correctIndex)
+                          : null,
+              }))
+            : [],
     };
+}
+
+function formatBytes(size) {
+    const bytes = Number(size) || 0;
+    if (bytes <= 0) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1).replace(/\.0$/, '')} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1).replace(/\.0$/, '')} MB`;
+}
+
+function youtubeVideoId(url) {
+    const value = text(url);
+    const patterns = [
+        /[?&]v=([\w-]{6,})/,
+        /youtu\.be\/([\w-]{6,})/,
+        /\/embed\/([\w-]{6,})/,
+        /\/shorts\/([\w-]{6,})/,
+    ];
+
+    for (const pattern of patterns) {
+        const match = value.match(pattern);
+        if (match) return match[1];
+    }
+
+    return null;
+}
+
+/** Parse SATU baris markdown ringan: **tebal**, *miring*, [label](url). Tanpa HTML mentah. */
+function renderInline(value, keyPrefix) {
+    const tokens = value.split(/(\*\*[^*\n]+\*\*|\*[^*\n]+\*|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\))/g);
+
+    return tokens.map((token, index) => {
+        const key = `${keyPrefix}-${index}`;
+        if (!token) return null;
+
+        const bold = token.match(/^\*\*([^*\n]+)\*\*$/);
+        if (bold) return <strong key={key}>{bold[1]}</strong>;
+
+        const italic = token.match(/^\*([^*\n]+)\*$/);
+        if (italic) return <em key={key}>{italic[1]}</em>;
+
+        const link = token.match(/^\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)$/);
+        if (link) {
+            return (
+                <a
+                    key={key}
+                    href={link[2]}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-emerald-700 underline decoration-emerald-300 underline-offset-2 hover:text-emerald-800"
+                >
+                    {link[1]}
+                </a>
+            );
+        }
+
+        return <span key={key}>{token}</span>;
+    });
+}
+
+/**
+ * Render markdown subset yang aman menjadi elemen React.
+ * Blok: paragraf (baris kosong), daftar "- ", daftar bernomor "1. ".
+ */
+function RichText({ body, mode }) {
+    const blocks = text(body)
+        .split(/\n\s*\n/)
+        .map((block) => block.trim())
+        .filter(Boolean);
+
+    const paragraphClass =
+        mode === 'live_proyektor' ? 'text-2xl leading-relaxed text-zinc-200' : 'text-sm leading-6 text-zinc-600';
+    const listClass =
+        mode === 'live_proyektor' ? 'text-2xl leading-relaxed text-zinc-200' : 'text-sm leading-6 text-zinc-600';
+
+    if (blocks.length === 0) return null;
+
+    return (
+        <div className="space-y-3">
+            {blocks.map((block, blockIndex) => {
+                const lines = block.split('\n').map((line) => line.trim()).filter(Boolean);
+                const key = `block-${blockIndex}`;
+
+                if (lines.length > 0 && lines.every((line) => line.startsWith('- '))) {
+                    return (
+                        <ul key={key} className={`list-disc space-y-1 pl-5 ${listClass}`}>
+                            {lines.map((line, lineIndex) => (
+                                <li key={`${key}-${lineIndex}`}>{renderInline(line.slice(2), `${key}-${lineIndex}`)}</li>
+                            ))}
+                        </ul>
+                    );
+                }
+
+                if (lines.length > 0 && lines.every((line) => /^\d+\.\s/.test(line))) {
+                    return (
+                        <ol key={key} className={`list-decimal space-y-1 pl-5 ${listClass}`}>
+                            {lines.map((line, lineIndex) => (
+                                <li key={`${key}-${lineIndex}`}>
+                                    {renderInline(line.replace(/^\d+\.\s/, ''), `${key}-${lineIndex}`)}
+                                </li>
+                            ))}
+                        </ol>
+                    );
+                }
+
+                return (
+                    <p key={key} className={paragraphClass}>
+                        {lines.map((line, lineIndex) => (
+                            <span key={`${key}-${lineIndex}`}>
+                                {lineIndex > 0 && <br />}
+                                {renderInline(line, `${key}-${lineIndex}`)}
+                            </span>
+                        ))}
+                    </p>
+                );
+            })}
+        </div>
+    );
 }
 
 function Shell({ mode, children, className = '' }) {
@@ -163,36 +330,61 @@ function QuestionHeader({ label, points, mode }) {
     );
 }
 
-async function submitAndMark(onSubmitAnswer, payload, setSubmitted, setSending) {
+async function submitAndMark(onSubmitAnswer, payload, setSubmitted, setSending, onResult = null) {
     if (!onSubmitAnswer) return;
 
     setSending(true);
     try {
-        const ok = await onSubmitAnswer(payload);
-        // Kontrak: parent mengembalikan false bila server gagal menyimpan.
-        if (ok !== false) setSubmitted(true);
+        const result = await onSubmitAnswer(payload);
+        // Kontrak: parent mengembalikan false bila server gagal menyimpan,
+        // boolean true bila tersimpan, atau objek {saved, correct} (mode
+        // latihan) yang memuat hasil penilaian untuk umpan balik siswa.
+        const saved =
+            result !== false &&
+            !(result !== null && typeof result === 'object' && result.saved === false);
+        if (saved) setSubmitted(true);
+        if (onResult) onResult(result);
     } finally {
         setSending(false);
     }
 }
 
-function McqBlock({ data, mode, points, reveal, onSubmitAnswer, initialAnswer = null }) {
+/** Ekstrak status benar/salah dari hasil submit mode latihan ({saved, correct}). */
+function correctFromResult(result) {
+    return result !== null && typeof result === 'object' && typeof result.correct === 'boolean'
+        ? result.correct
+        : null;
+}
+
+function McqBlock({ data, mode, points, reveal, onSubmitAnswer, initialAnswer = null, initialCorrect = null }) {
     const [selected, setSelected] = useState(() =>
         Number.isInteger(initialAnswer?.option_index) ? initialAnswer.option_index : null,
     );
     const [checked, setChecked] = useState(false);
     const [submitted, setSubmitted] = useState(() => initialAnswer != null);
     const [sending, setSending] = useState(false);
+    // Hasil penilaian terakhir (mode latihan): false → tawarkan "Coba lagi".
+    const [lastCorrect, setLastCorrect] = useState(() =>
+        typeof initialCorrect === 'boolean' ? initialCorrect : null,
+    );
 
     useEffect(() => {
         setSelected(Number.isInteger(initialAnswer?.option_index) ? initialAnswer.option_index : null);
         setChecked(false);
         setSubmitted(initialAnswer != null);
+        setLastCorrect(typeof initialCorrect === 'boolean' ? initialCorrect : null);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [data.question, data.options.length]);
 
     const interactive = mode !== 'editor_guru' && mode !== 'live_proyektor';
     const showKey = mode === 'editor_guru' || reveal;
+
+    function resetAttempt() {
+        setSelected(null);
+        setChecked(false);
+        setSubmitted(false);
+        setLastCorrect(null);
+    }
 
     return (
         <div>
@@ -262,14 +454,18 @@ function McqBlock({ data, mode, points, reveal, onSubmitAnswer, initialAnswer = 
                                         { option_index: selected },
                                         setSubmitted,
                                         setSending,
+                                        (result) => setLastCorrect((prev) => correctFromResult(result) ?? prev),
                                     )
                                 }
                                 className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                                 {sending ? 'Mengirim...' : submitted ? 'Kirim Ulang Jawaban' : 'Kirim Jawaban'}
                             </button>
-                            {submitted && (
+                            {submitted && lastCorrect === null && (
                                 <span className="text-xs font-medium text-emerald-700">Jawaban terkirim.</span>
+                            )}
+                            {submitted && lastCorrect === true && (
+                                <span className="text-xs font-medium text-emerald-700">Tepat ✓</span>
                             )}
                         </>
                     ) : (
@@ -295,6 +491,21 @@ function McqBlock({ data, mode, points, reveal, onSubmitAnswer, initialAnswer = 
                     )}
                 </div>
             )}
+
+            {mode === 'mandiri_siswa' &&
+                interactive &&
+                (lastCorrect === false || (checked && selected !== null && !data.options[selected]?.correct)) && (
+                    <div className="mt-3 flex items-center gap-3">
+                        <span className="text-xs font-medium text-red-600">Jawaban belum tepat.</span>
+                        <button
+                            type="button"
+                            onClick={resetAttempt}
+                            className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
+                        >
+                            Coba lagi
+                        </button>
+                    </div>
+                )}
 
             {data.explanation && (mode === 'editor_guru' || checked || reveal) && (
                 <p
@@ -335,13 +546,23 @@ function orderFromSaved(steps, savedOrder) {
     return items.every(Boolean) ? items : null;
 }
 
-function SequencingBlock({ data, mode, points, reveal, onSubmitAnswer, initialAnswer = null }) {
+function SequencingBlock({ data, mode, points, reveal, onSubmitAnswer, initialAnswer = null, initialCorrect = null }) {
     const [order, setOrder] = useState(
         () => orderFromSaved(data.steps, initialAnswer?.order) ?? shuffledSteps(data.steps, mode === 'live_proyektor'),
     );
     const [checked, setChecked] = useState(false);
     const [submitted, setSubmitted] = useState(() => initialAnswer != null);
     const [sending, setSending] = useState(false);
+    const [lastCorrect, setLastCorrect] = useState(() =>
+        typeof initialCorrect === 'boolean' ? initialCorrect : null,
+    );
+
+    function resetAttempt() {
+        setOrder(shuffledSteps(data.steps, true));
+        setChecked(false);
+        setSubmitted(false);
+        setLastCorrect(null);
+    }
 
     // Reset HANYA bila himpunan langkahnya benar-benar berubah. Reconnect WS
     // mengacak ulang serialisasi server; urutan kerja siswa tidak boleh hilang.
@@ -357,6 +578,7 @@ function SequencingBlock({ data, mode, points, reveal, onSubmitAnswer, initialAn
         );
         setChecked(false);
         setSubmitted(initialAnswer != null);
+        setLastCorrect(typeof initialCorrect === 'boolean' ? initialCorrect : null);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [stepsSignature, mode]);
 
@@ -440,6 +662,7 @@ function SequencingBlock({ data, mode, points, reveal, onSubmitAnswer, initialAn
                                         { order: order.map((item) => item.step) },
                                         setSubmitted,
                                         setSending,
+                                        (result) => setLastCorrect((prev) => correctFromResult(result) ?? prev),
                                     )
                                 }
                                 className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
@@ -469,6 +692,21 @@ function SequencingBlock({ data, mode, points, reveal, onSubmitAnswer, initialAn
                 </div>
             )}
 
+            {mode === 'mandiri_siswa' &&
+                interactive &&
+                (lastCorrect === false || (checked && !data.keyless && !isCorrect)) && (
+                    <div className="mt-3 flex items-center gap-3">
+                        <span className="text-xs font-medium text-red-600">Urutan belum tepat.</span>
+                        <button
+                            type="button"
+                            onClick={resetAttempt}
+                            className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
+                        >
+                            Coba lagi
+                        </button>
+                    </div>
+                )}
+
             {(mode === 'editor_guru' || reveal) && data.steps.length > 0 && (
                 <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
                     Kunci: {data.steps.map((step, index) => `${index + 1}. ${step}`).join(' → ')}
@@ -490,7 +728,7 @@ function answersFromSaved(pairs, savedMatching) {
     return result;
 }
 
-function MatchingBlock({ data, mode, points, reveal, onSubmitAnswer, initialAnswer = null }) {
+function MatchingBlock({ data, mode, points, reveal, onSubmitAnswer, initialAnswer = null, initialCorrect = null }) {
     const rights = useMemo(
         () =>
             data.rights.length > 0
@@ -502,13 +740,24 @@ function MatchingBlock({ data, mode, points, reveal, onSubmitAnswer, initialAnsw
     const [checked, setChecked] = useState(false);
     const [submitted, setSubmitted] = useState(() => initialAnswer != null);
     const [sending, setSending] = useState(false);
+    const [lastCorrect, setLastCorrect] = useState(() =>
+        typeof initialCorrect === 'boolean' ? initialCorrect : null,
+    );
 
     useEffect(() => {
         setAnswers(answersFromSaved(data.pairs, initialAnswer?.matching));
         setChecked(false);
         setSubmitted(initialAnswer != null);
+        setLastCorrect(typeof initialCorrect === 'boolean' ? initialCorrect : null);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [data.pairs.map((p) => `${p.left}:${p.right}`).join('|')]);
+
+    function resetAttempt() {
+        setAnswers({});
+        setChecked(false);
+        setSubmitted(false);
+        setLastCorrect(null);
+    }
 
     const interactive = mode !== 'editor_guru' && mode !== 'live_proyektor';
     const allCorrect =
@@ -587,6 +836,7 @@ function MatchingBlock({ data, mode, points, reveal, onSubmitAnswer, initialAnsw
                                         },
                                         setSubmitted,
                                         setSending,
+                                        (result) => setLastCorrect((prev) => correctFromResult(result) ?? prev),
                                     )
                                 }
                                 className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
@@ -616,6 +866,21 @@ function MatchingBlock({ data, mode, points, reveal, onSubmitAnswer, initialAnsw
                     )}
                 </div>
             )}
+
+            {mode === 'mandiri_siswa' &&
+                interactive &&
+                (lastCorrect === false || (checked && !data.keyless && !allCorrect)) && (
+                    <div className="mt-3 flex items-center gap-3">
+                        <span className="text-xs font-medium text-red-600">Masih ada pasangan yang belum tepat.</span>
+                        <button
+                            type="button"
+                            onClick={resetAttempt}
+                            className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
+                        >
+                            Coba lagi
+                        </button>
+                    </div>
+                )}
 
             {(mode === 'editor_guru' || reveal) && data.explanation && (
                 <p className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
@@ -712,6 +977,1332 @@ function EssayBlock({ data, mode, points, rubric, onSubmitAnswer, initialAnswer 
     );
 }
 
+function SectionHeadingBlock({ data, mode }) {
+    const titleSize =
+        mode === 'live_proyektor'
+            ? 'text-4xl sm:text-5xl'
+            : mode === 'editor_guru'
+              ? 'text-xl'
+              : 'text-2xl';
+
+    return (
+        <div className={mode === 'editor_guru' ? 'py-1' : 'py-2'}>
+            <span
+                className={`mb-3 block h-1 w-14 rounded-full ${
+                    mode === 'live_proyektor' ? 'bg-emerald-400' : 'bg-emerald-600'
+                }`}
+            />
+            <h3
+                className={`font-display font-bold leading-tight ${
+                    mode === 'live_proyektor' ? 'text-white' : 'text-emerald-950'
+                } ${titleSize}`}
+            >
+                {data.title}
+            </h3>
+            {data.body && (
+                <p
+                    className={`mt-2 max-w-2xl ${
+                        mode === 'live_proyektor'
+                            ? 'text-xl leading-relaxed text-zinc-300'
+                            : 'text-sm leading-6 text-zinc-500'
+                    }`}
+                >
+                    {data.body}
+                </p>
+            )}
+        </div>
+    );
+}
+
+function VideoBlock({ data, mode }) {
+    const videoId = youtubeVideoId(data.url);
+    const isYoutube = data.source === 'youtube' || videoId !== null;
+
+    return (
+        <figure>
+            <Heading mode={mode} kicker={BLOCK_LABELS.materi_video}>
+                {data.title}
+            </Heading>
+            {isYoutube && videoId ? (
+                <div className="aspect-video w-full overflow-hidden rounded-lg bg-black">
+                    <iframe
+                        src={`https://www.youtube-nocookie.com/embed/${videoId}`}
+                        title={data.title || 'Video materi'}
+                        loading="lazy"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                        className="h-full w-full"
+                    />
+                </div>
+            ) : data.url ? (
+                <video controls src={data.url} className="aspect-video w-full rounded-lg bg-black" />
+            ) : (
+                <div
+                    className={`flex aspect-video items-center justify-center rounded-lg border border-dashed text-xs ${
+                        mode === 'live_proyektor'
+                            ? 'border-zinc-700 text-zinc-500'
+                            : 'border-zinc-200 text-zinc-400'
+                    }`}
+                >
+                    Belum ada video.
+                </div>
+            )}
+            {data.caption && (
+                <figcaption
+                    className={`mt-2 text-center ${
+                        mode === 'live_proyektor' ? 'text-lg text-zinc-400' : 'text-xs text-zinc-500'
+                    }`}
+                >
+                    {data.caption}
+                </figcaption>
+            )}
+        </figure>
+    );
+}
+
+function FileBlock({ data, mode }) {
+    return (
+        <div>
+            <Heading mode={mode} kicker={BLOCK_LABELS.materi_file}>
+                {data.title}
+            </Heading>
+            {data.files.length === 0 ? (
+                <p className={`text-xs ${mode === 'live_proyektor' ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                    Belum ada berkas terlampir.
+                </p>
+            ) : (
+                <div className="space-y-2">
+                    {data.files.map((file, fileIndex) => (
+                        <div
+                            key={`${file.url}-${fileIndex}`}
+                            className={`flex items-center gap-3 rounded-lg border px-3.5 py-3 ${
+                                mode === 'live_proyektor'
+                                    ? 'border-zinc-700 bg-zinc-900'
+                                    : 'border-zinc-200 bg-white'
+                            }`}
+                        >
+                            <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                className={`h-8 w-8 shrink-0 ${mode === 'live_proyektor' ? 'text-emerald-400' : 'text-emerald-700'}`}
+                                aria-hidden="true"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M7 3h7l4 4v14H7z M14 3v4h4 M10 12h5 M10 16h5"
+                                />
+                            </svg>
+                            <span className="min-w-0 flex-1">
+                                <span
+                                    className={`block truncate font-medium ${
+                                        mode === 'live_proyektor' ? 'text-lg text-zinc-100' : 'text-sm text-zinc-800'
+                                    }`}
+                                >
+                                    {file.name || 'Berkas'}
+                                </span>
+                                {formatBytes(file.size) && (
+                                    <span className={`font-mono text-[11px] ${mode === 'live_proyektor' ? 'text-zinc-400' : 'text-zinc-400'}`}>
+                                        {formatBytes(file.size)}
+                                    </span>
+                                )}
+                            </span>
+                            <a
+                                href={file.url}
+                                download
+                                className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium ${
+                                    mode === 'live_proyektor'
+                                        ? 'bg-emerald-600 text-white hover:bg-emerald-500'
+                                        : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                }`}
+                            >
+                                Unduh
+                            </a>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function EmbedBlock({ data, mode }) {
+    let hostname = '';
+    try {
+        hostname = data.url ? new URL(data.url).hostname : '';
+    } catch {
+        hostname = '';
+    }
+
+    return (
+        <div>
+            <Heading mode={mode} kicker={BLOCK_LABELS.materi_embed}>
+                {data.title}
+            </Heading>
+            {data.url ? (
+                <>
+                    {data.embed ? (
+                        <div
+                            className={`aspect-video w-full overflow-hidden rounded-lg border ${
+                                mode === 'live_proyektor' ? 'border-zinc-700 bg-zinc-900' : 'border-zinc-200 bg-white'
+                            }`}
+                        >
+                            <iframe
+                                src={data.url}
+                                title={data.title || 'Konten tersemat'}
+                                loading="lazy"
+                                allowFullScreen
+                                className="h-full w-full"
+                            />
+                        </div>
+                    ) : (
+                        <a
+                            href={data.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={`flex items-center gap-3 rounded-lg border px-3.5 py-3 transition-colors ${
+                                mode === 'live_proyektor'
+                                    ? 'border-zinc-700 bg-zinc-900 hover:border-emerald-600'
+                                    : 'border-zinc-200 bg-white hover:border-emerald-300 hover:bg-emerald-50'
+                            }`}
+                        >
+                            <span className="min-w-0 flex-1">
+                                <span
+                                    className={`block truncate font-medium ${
+                                        mode === 'live_proyektor' ? 'text-lg text-zinc-100' : 'text-sm text-zinc-800'
+                                    }`}
+                                >
+                                    {hostname || data.url}
+                                </span>
+                                <span className={`block truncate text-xs ${mode === 'live_proyektor' ? 'text-zinc-400' : 'text-zinc-400'}`}>
+                                    {data.url}
+                                </span>
+                            </span>
+                            <span className={`shrink-0 text-lg ${mode === 'live_proyektor' ? 'text-emerald-400' : 'text-emerald-700'}`}>↗</span>
+                        </a>
+                    )}
+                    {data.embed && (
+                        <p className="mt-2">
+                            <a
+                                href={data.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className={`text-xs font-medium underline underline-offset-2 ${
+                                    mode === 'live_proyektor' ? 'text-emerald-400' : 'text-emerald-700'
+                                }`}
+                            >
+                                Buka di tab baru ↗
+                            </a>
+                        </p>
+                    )}
+                </>
+            ) : (
+                <p className={`text-xs ${mode === 'live_proyektor' ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                    Belum ada tautan.
+                </p>
+            )}
+            {data.caption && (
+                <p className={`mt-2 ${mode === 'live_proyektor' ? 'text-lg text-zinc-400' : 'text-xs text-zinc-500'}`}>
+                    {data.caption}
+                </p>
+            )}
+        </div>
+    );
+}
+
+function TrueFalseBlock({ data, mode, points, reveal, onSubmitAnswer, initialAnswer = null, initialCorrect = null }) {
+    const [selected, setSelected] = useState(() =>
+        typeof initialAnswer?.value === 'boolean' ? initialAnswer.value : null,
+    );
+    const [checked, setChecked] = useState(false);
+    const [submitted, setSubmitted] = useState(() => initialAnswer != null);
+    const [sending, setSending] = useState(false);
+    const [lastCorrect, setLastCorrect] = useState(() =>
+        typeof initialCorrect === 'boolean' ? initialCorrect : null,
+    );
+
+    useEffect(() => {
+        setSelected(typeof initialAnswer?.value === 'boolean' ? initialAnswer.value : null);
+        setChecked(false);
+        setSubmitted(initialAnswer != null);
+        setLastCorrect(typeof initialCorrect === 'boolean' ? initialCorrect : null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [data.question]);
+
+    const interactive = mode !== 'editor_guru' && mode !== 'live_proyektor';
+    const showKey = mode === 'editor_guru' || reveal;
+
+    function resetAttempt() {
+        setSelected(null);
+        setChecked(false);
+        setSubmitted(false);
+        setLastCorrect(null);
+    }
+    const choices = [
+        { value: true, label: 'Benar', icon: '✓' },
+        { value: false, label: 'Salah', icon: '✕' },
+    ];
+
+    return (
+        <div>
+            <QuestionHeader label="Benar / Salah" points={points} mode={mode} />
+            <p className={`mb-4 font-medium ${mode === 'live_proyektor' ? 'text-2xl sm:text-3xl' : 'text-sm'}`}>
+                {data.question}
+            </p>
+            <div className="grid grid-cols-2 gap-2.5">
+                {choices.map((choice) => {
+                    const isSelected = selected === choice.value;
+                    const isCorrect = data.answerKey !== null && choice.value === data.answerKey;
+                    const tone = showKey && isCorrect
+                        ? mode === 'live_proyektor'
+                            ? 'border-emerald-700 bg-emerald-950/50'
+                            : 'border-emerald-300 bg-emerald-50'
+                        : isSelected
+                          ? mode === 'live_proyektor'
+                              ? 'border-emerald-500 bg-zinc-800'
+                              : 'border-emerald-400 bg-white'
+                          : mode === 'live_proyektor'
+                            ? 'border-zinc-700 bg-zinc-900'
+                            : 'border-zinc-200 bg-white hover:border-emerald-300';
+
+                    return (
+                        <button
+                            key={String(choice.value)}
+                            type="button"
+                            disabled={!interactive}
+                            onClick={() => {
+                                setSelected(choice.value);
+                                setChecked(false);
+                            }}
+                            className={`flex items-center justify-center gap-2 rounded-lg border px-3.5 py-4 text-center transition-colors disabled:cursor-default ${tone}`}
+                        >
+                            <span
+                                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-sm font-bold ${
+                                    choice.value
+                                        ? 'border-emerald-300 text-emerald-600'
+                                        : 'border-red-300 text-red-500'
+                                }`}
+                            >
+                                {choice.icon}
+                            </span>
+                            <span className={`font-semibold ${mode === 'live_proyektor' ? 'text-2xl' : 'text-base'}`}>
+                                {choice.label}
+                            </span>
+                            {showKey && isCorrect && (
+                                <span className="font-mono text-[10px] uppercase tracking-wider text-emerald-600">
+                                    kunci
+                                </span>
+                            )}
+                        </button>
+                    );
+                })}
+            </div>
+
+            {interactive && (
+                <div className="mt-4 flex items-center gap-3">
+                    {onSubmitAnswer ? (
+                        <>
+                            <button
+                                type="button"
+                                disabled={selected === null || sending}
+                                onClick={() =>
+                                    submitAndMark(
+                                        onSubmitAnswer,
+                                        { value: selected },
+                                        setSubmitted,
+                                        setSending,
+                                        (result) => setLastCorrect((prev) => correctFromResult(result) ?? prev),
+                                    )
+                                }
+                                className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                {sending ? 'Mengirim...' : submitted ? 'Kirim Ulang Jawaban' : 'Kirim Jawaban'}
+                            </button>
+                            {submitted && lastCorrect === null && (
+                                <span className="text-xs font-medium text-emerald-700">Jawaban terkirim.</span>
+                            )}
+                            {submitted && lastCorrect === true && (
+                                <span className="text-xs font-medium text-emerald-700">Tepat ✓</span>
+                            )}
+                        </>
+                    ) : (
+                        <>
+                            <button
+                                type="button"
+                                disabled={selected === null}
+                                onClick={() => setChecked(true)}
+                                className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                Periksa Jawaban
+                            </button>
+                            {checked && selected !== null && data.answerKey !== null && (
+                                <span
+                                    className={`text-xs font-medium ${
+                                        selected === data.answerKey ? 'text-emerald-700' : 'text-red-600'
+                                    }`}
+                                >
+                                    {selected === data.answerKey ? 'Tepat.' : 'Belum tepat, coba lagi.'}
+                                </span>
+                            )}
+                        </>
+                    )}
+                </div>
+            )}
+
+            {mode === 'mandiri_siswa' &&
+                interactive &&
+                (lastCorrect === false ||
+                    (checked && selected !== null && data.answerKey !== null && selected !== data.answerKey)) && (
+                    <div className="mt-3 flex items-center gap-3">
+                        <span className="text-xs font-medium text-red-600">Jawaban belum tepat.</span>
+                        <button
+                            type="button"
+                            onClick={resetAttempt}
+                            className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
+                        >
+                            Coba lagi
+                        </button>
+                    </div>
+                )}
+
+            {data.explanation && (mode === 'editor_guru' || checked || reveal) && (
+                <p
+                    className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+                        mode === 'live_proyektor'
+                            ? 'border-zinc-700 bg-zinc-800 text-zinc-300'
+                            : 'border-zinc-200 bg-zinc-50 text-zinc-600'
+                    }`}
+                >
+                    {data.explanation}
+                </p>
+            )}
+        </div>
+    );
+}
+
+function normalizeFillBlankClient(value) {
+    return String(value ?? '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+}
+
+function FillBlankBlock({ data, mode, points, reveal, onSubmitAnswer, initialAnswer = null, initialCorrect = null }) {
+    const [answer, setAnswer] = useState(() => (typeof initialAnswer?.text === 'string' ? initialAnswer.text : ''));
+    const [checked, setChecked] = useState(false);
+    const [submitted, setSubmitted] = useState(() => initialAnswer != null);
+    const [sending, setSending] = useState(false);
+    const [lastCorrect, setLastCorrect] = useState(() =>
+        typeof initialCorrect === 'boolean' ? initialCorrect : null,
+    );
+
+    useEffect(() => {
+        setAnswer(typeof initialAnswer?.text === 'string' ? initialAnswer.text : '');
+        setChecked(false);
+        setSubmitted(initialAnswer != null);
+        setLastCorrect(typeof initialCorrect === 'boolean' ? initialCorrect : null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [data.question]);
+
+    function resetAttempt() {
+        setAnswer('');
+        setChecked(false);
+        setSubmitted(false);
+        setLastCorrect(null);
+    }
+
+    const interactive = mode !== 'editor_guru' && mode !== 'live_proyektor';
+    const isCorrect =
+        data.answers.length > 0 &&
+        data.answers.some((accepted) => normalizeFillBlankClient(accepted) === normalizeFillBlankClient(answer));
+    const questionParts = data.question.split('___');
+
+    return (
+        <div>
+            <QuestionHeader label="Isian Singkat" points={points} mode={mode} />
+            <p className={`mb-4 font-medium ${mode === 'live_proyektor' ? 'text-2xl sm:text-3xl' : 'text-sm'}`}>
+                {questionParts.map((part, partIndex) => (
+                    <span key={partIndex}>
+                        {partIndex > 0 && (
+                            <span className="mx-1 inline-block min-w-[4.5rem] border-b-2 border-emerald-500 align-baseline">
+                                &nbsp;
+                            </span>
+                        )}
+                        {part}
+                    </span>
+                ))}
+            </p>
+
+            {interactive ? (
+                <>
+                    <input
+                        type="text"
+                        value={answer}
+                        onChange={(event) => {
+                            setAnswer(event.target.value);
+                            setChecked(false);
+                            setSubmitted(false);
+                        }}
+                        placeholder="Tulis jawabanmu di sini..."
+                        className={`w-full rounded-lg border px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 ${
+                            mode === 'live_proyektor'
+                                ? 'border-zinc-600 bg-zinc-800 text-white'
+                                : 'border-zinc-200 bg-white text-zinc-900'
+                        }`}
+                    />
+                    <div className="mt-3 flex items-center gap-3">
+                        {onSubmitAnswer ? (
+                            <>
+                                <button
+                                    type="button"
+                                    disabled={answer.trim().length === 0 || sending}
+                                    onClick={() =>
+                                        submitAndMark(
+                                            onSubmitAnswer,
+                                            { text: answer },
+                                            setSubmitted,
+                                            setSending,
+                                            (result) =>
+                                                setLastCorrect((prev) => correctFromResult(result) ?? prev),
+                                        )
+                                    }
+                                    className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                    {sending ? 'Mengirim...' : submitted ? 'Kirim Ulang Jawaban' : 'Kirim Jawaban'}
+                                </button>
+                                {submitted && lastCorrect === null && (
+                                    <span className="text-xs font-medium text-emerald-700">Jawaban terkirim.</span>
+                                )}
+                                {submitted && lastCorrect === true && (
+                                    <span className="text-xs font-medium text-emerald-700">Tepat ✓</span>
+                                )}
+                            </>
+                        ) : (
+                            <>
+                                <button
+                                    type="button"
+                                    disabled={answer.trim().length === 0}
+                                    onClick={() => setChecked(true)}
+                                    className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                    Periksa Jawaban
+                                </button>
+                                {checked && data.answers.length > 0 && (
+                                    <span className={`text-xs font-medium ${isCorrect ? 'text-emerald-700' : 'text-red-600'}`}>
+                                        {isCorrect ? 'Tepat.' : 'Belum tepat, coba lagi.'}
+                                    </span>
+                                )}
+                            </>
+                        )}
+                    </div>
+
+                    {mode === 'mandiri_siswa' &&
+                        (lastCorrect === false || (checked && data.answers.length > 0 && !isCorrect)) && (
+                            <div className="mt-3 flex items-center gap-3">
+                                <span className="text-xs font-medium text-red-600">Jawaban belum tepat.</span>
+                                <button
+                                    type="button"
+                                    onClick={resetAttempt}
+                                    className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
+                                >
+                                    Coba lagi
+                                </button>
+                            </div>
+                        )}
+                </>
+            ) : (
+                <div
+                    className={`rounded-lg border border-dashed px-3 py-6 text-center text-xs ${
+                        mode === 'live_proyektor'
+                            ? 'border-zinc-700 text-zinc-500'
+                            : 'border-zinc-200 text-zinc-400'
+                    }`}
+                >
+                    Siswa mengetik jawaban singkat pada perangkat masing-masing.
+                </div>
+            )}
+
+            {(mode === 'editor_guru' || reveal) && data.answers.length > 0 && (
+                <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                    Kunci: {data.answers.join(' / ')}
+                </div>
+            )}
+
+            {data.explanation && (mode === 'editor_guru' || checked || reveal) && (
+                <p
+                    className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+                        mode === 'live_proyektor'
+                            ? 'border-zinc-700 bg-zinc-800 text-zinc-300'
+                            : 'border-zinc-200 bg-zinc-50 text-zinc-600'
+                    }`}
+                >
+                    {data.explanation}
+                </p>
+            )}
+        </div>
+    );
+}
+
+function assignmentsFromSaved(spots, savedAssignments) {
+    if (!savedAssignments || typeof savedAssignments !== 'object') return {};
+
+    const result = {};
+    spots.forEach((spot, index) => {
+        const value = savedAssignments[index] ?? savedAssignments[String(index)];
+        if (typeof value === 'string' && value !== '') {
+            result[index] = value;
+        }
+    });
+    return result;
+}
+
+function HotspotBlock({ data, mode, points, reveal, onSubmitAnswer, initialAnswer = null, initialCorrect = null }) {
+    // Label tersedia dari spots (konten penuh) atau daftar terpisah pada
+    // payload siswa live (server sudah memisahkan label dari titiknya).
+    const allLabels = useMemo(() => {
+        const fromSpots = data.spots.map((spot) => spot.label).filter(Boolean);
+        return data.labels.length > 0 ? data.labels : [...new Set(fromSpots)];
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [data.spots.map((spot) => spot.label).join('|'), data.labels.join('|')]);
+
+    // Urutan opsi diacak SEKALI per mount agar tidak berubah di tengah menjawab.
+    const [shuffledLabels] = useState(() => {
+        const copy = [...allLabels];
+        for (let position = copy.length - 1; position > 0; position -= 1) {
+            const swap = Math.floor(Math.random() * (position + 1));
+            [copy[position], copy[swap]] = [copy[swap], copy[position]];
+        }
+        return copy;
+    });
+
+    const [assignments, setAssignments] = useState(() =>
+        assignmentsFromSaved(data.spots, initialAnswer?.assignments),
+    );
+    const [checked, setChecked] = useState(false);
+    const [submitted, setSubmitted] = useState(() => initialAnswer != null);
+    const [sending, setSending] = useState(false);
+    const [lastCorrect, setLastCorrect] = useState(() =>
+        typeof initialCorrect === 'boolean' ? initialCorrect : null,
+    );
+
+    const spotsSignature = data.spots.map((spot) => `${spot.x},${spot.y},${spot.label}`).join('|');
+    useEffect(() => {
+        setAssignments(assignmentsFromSaved(data.spots, initialAnswer?.assignments));
+        setChecked(false);
+        setSubmitted(initialAnswer != null);
+        setLastCorrect(typeof initialCorrect === 'boolean' ? initialCorrect : null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [data.question, data.imageUrl, spotsSignature]);
+
+    function resetAttempt() {
+        setAssignments({});
+        setChecked(false);
+        setSubmitted(false);
+        setLastCorrect(null);
+    }
+
+    const interactive = mode !== 'editor_guru' && mode !== 'live_proyektor';
+    const showKey = mode === 'editor_guru' || reveal;
+    const allCorrect =
+        !data.keyless &&
+        data.spots.length > 0 &&
+        data.spots.every((spot, index) => assignments[index] === spot.label);
+    const allAssigned = data.spots.length > 0 && data.spots.every((_, index) => assignments[index]);
+
+    return (
+        <div>
+            <QuestionHeader label="Labeli Gambar / Hotspot" points={points} mode={mode} />
+            <p className={`mb-4 font-medium ${mode === 'live_proyektor' ? 'text-2xl sm:text-3xl' : 'text-sm'}`}>
+                {data.question}
+            </p>
+
+            {data.imageUrl ? (
+                <div className="relative select-none overflow-hidden rounded-lg border border-zinc-200">
+                    <img src={data.imageUrl} alt={data.question || 'Gambar hotspot'} className="block w-full" />
+                    {data.spots.map((spot, index) => (
+                        <span
+                            key={index}
+                            className="absolute flex -translate-x-1/2 -translate-y-1/2 items-center gap-1.5"
+                            style={{ left: `${spot.x}%`, top: `${spot.y}%` }}
+                        >
+                            <span
+                                className={`flex h-7 w-7 items-center justify-center rounded-full border-2 border-white font-mono text-xs font-bold text-white shadow ${
+                                    interactive && assignments[index] ? 'bg-emerald-500' : 'bg-emerald-600'
+                                }`}
+                            >
+                                {index + 1}
+                            </span>
+                            {showKey && spot.label && (
+                                <span className="rounded bg-zinc-900/85 px-1.5 py-0.5 text-[11px] font-medium text-white">
+                                    {spot.label}
+                                </span>
+                            )}
+                        </span>
+                    ))}
+                </div>
+            ) : (
+                <div
+                    className={`flex aspect-video items-center justify-center rounded-lg border border-dashed text-xs ${
+                        mode === 'live_proyektor' ? 'border-zinc-700 text-zinc-500' : 'border-zinc-200 text-zinc-400'
+                    }`}
+                >
+                    Belum ada gambar.
+                </div>
+            )}
+
+            {interactive && (
+                <>
+                    <div className="mt-4 space-y-2">
+                        {data.spots.map((spot, index) => (
+                            <div
+                                key={index}
+                                className="grid grid-cols-[auto_1fr] items-center gap-2.5 rounded-lg border border-zinc-200 bg-white px-3 py-2.5"
+                            >
+                                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-600 font-mono text-xs font-bold text-white">
+                                    {index + 1}
+                                </span>
+                                <select
+                                    value={assignments[index] ?? ''}
+                                    onChange={(event) => {
+                                        setAssignments((prev) => ({ ...prev, [index]: event.target.value }));
+                                        setChecked(false);
+                                    }}
+                                    className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900"
+                                >
+                                    <option value="">— pilih label titik {index + 1} —</option>
+                                    {shuffledLabels.map((label) => (
+                                        <option key={label} value={label}>
+                                            {label}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="mt-4 flex items-center gap-3">
+                        {onSubmitAnswer ? (
+                            <>
+                                <button
+                                    type="button"
+                                    disabled={!allAssigned || sending}
+                                    onClick={() =>
+                                        submitAndMark(
+                                            onSubmitAnswer,
+                                            {
+                                                assignments: Object.fromEntries(
+                                                    data.spots.map((_, index) => [
+                                                        String(index),
+                                                        assignments[index] ?? '',
+                                                    ]),
+                                                ),
+                                            },
+                                            setSubmitted,
+                                            setSending,
+                                            (result) =>
+                                                setLastCorrect((prev) => correctFromResult(result) ?? prev),
+                                        )
+                                    }
+                                    className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                    {sending ? 'Mengirim...' : submitted ? 'Kirim Ulang Label' : 'Kirim Label'}
+                                </button>
+                                {submitted && (
+                                    <span className="text-xs font-medium text-emerald-700">Label terkirim.</span>
+                                )}
+                            </>
+                        ) : (
+                            <>
+                                <button
+                                    type="button"
+                                    disabled={!allAssigned}
+                                    onClick={() => setChecked(true)}
+                                    className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                    Periksa Label
+                                </button>
+                                {checked && !data.keyless && (
+                                    <span
+                                        className={`text-xs font-medium ${allCorrect ? 'text-emerald-700' : 'text-red-600'}`}
+                                    >
+                                        {allCorrect ? 'Semua label tepat.' : 'Masih ada label yang belum tepat.'}
+                                    </span>
+                                )}
+                            </>
+                        )}
+                    </div>
+
+                    {mode === 'mandiri_siswa' &&
+                        (lastCorrect === false || (checked && !data.keyless && !allCorrect)) && (
+                            <div className="mt-3 flex items-center gap-3">
+                                <span className="text-xs font-medium text-red-600">
+                                    Masih ada label yang belum tepat.
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={resetAttempt}
+                                    className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
+                                >
+                                    Coba lagi
+                                </button>
+                            </div>
+                        )}
+                </>
+            )}
+
+            {data.explanation && (mode === 'editor_guru' || checked || reveal) && (
+                <p
+                    className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+                        mode === 'live_proyektor'
+                            ? 'border-zinc-700 bg-zinc-800 text-zinc-300'
+                            : 'border-zinc-200 bg-zinc-50 text-zinc-600'
+                    }`}
+                >
+                    {data.explanation}
+                </p>
+            )}
+        </div>
+    );
+}
+
+function PollingBlock({ data, mode, onSubmitAnswer, initialAnswer = null, pollResults = null }) {
+    const [selected, setSelected] = useState(() =>
+        Number.isInteger(initialAnswer?.option_index) ? initialAnswer.option_index : null,
+    );
+    const [submitted, setSubmitted] = useState(() => initialAnswer != null);
+    const [sending, setSending] = useState(false);
+
+    useEffect(() => {
+        setSelected(Number.isInteger(initialAnswer?.option_index) ? initialAnswer.option_index : null);
+        setSubmitted(initialAnswer != null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [data.question, data.options.length]);
+
+    const interactive = mode !== 'editor_guru' && mode !== 'live_proyektor';
+    const locked = submitted;
+
+    // Tampilan proyektor dengan hasil agregat dari panggung guru.
+    if (mode === 'live_proyektor' && pollResults) {
+        const counts = data.options.map((_, index) => Number(pollResults.counts?.[index]) || 0);
+        const total = Number(pollResults.total) || counts.reduce((sum, count) => sum + count, 0);
+
+        return (
+            <div>
+                <QuestionHeader label="Polling Kilat" points={0} mode={mode} />
+                <p className="mb-5 font-medium text-2xl sm:text-3xl">{data.question}</p>
+                <div className="space-y-3">
+                    {data.options.map((option, index) => {
+                        const percent = total > 0 ? Math.round((counts[index] / total) * 100) : 0;
+
+                        return (
+                            <div key={index}>
+                                <div className="mb-1 flex items-baseline justify-between gap-3">
+                                    <span className="text-xl text-zinc-100">{option.text}</span>
+                                    <span className="font-mono text-sm text-emerald-400">
+                                        {counts[index]} suara · {percent}%
+                                    </span>
+                                </div>
+                                <div className="h-3.5 overflow-hidden rounded-full bg-zinc-800">
+                                    <div
+                                        className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+                                        style={{ width: `${percent}%` }}
+                                    />
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+                <p className="mt-4 font-mono text-xs uppercase tracking-widest text-zinc-500">
+                    Total {total} suara masuk
+                </p>
+            </div>
+        );
+    }
+
+    return (
+        <div>
+            <QuestionHeader label="Polling Kilat" points={0} mode={mode} />
+            <p className={`mb-4 font-medium ${mode === 'live_proyektor' ? 'text-2xl sm:text-3xl' : 'text-sm'}`}>
+                {data.question}
+            </p>
+            <div className="space-y-2.5">
+                {data.options.map((option, index) => {
+                    const isSelected = selected === index;
+                    const tone = isSelected
+                        ? mode === 'live_proyektor'
+                            ? 'border-emerald-500 bg-zinc-800'
+                            : 'border-emerald-400 bg-emerald-50'
+                        : mode === 'live_proyektor'
+                          ? 'border-zinc-700 bg-zinc-900'
+                          : 'border-zinc-200 bg-white hover:border-emerald-300';
+
+                    return (
+                        <button
+                            key={index}
+                            type="button"
+                            disabled={!interactive || locked}
+                            onClick={() => setSelected(index)}
+                            className={`flex w-full items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition-colors disabled:cursor-default ${tone}`}
+                        >
+                            <span
+                                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border font-mono text-xs ${
+                                    isSelected
+                                        ? 'border-emerald-500 bg-emerald-600 text-white'
+                                        : mode === 'live_proyektor'
+                                          ? 'border-zinc-600 text-zinc-300'
+                                          : 'border-zinc-300 text-zinc-500'
+                                }`}
+                            >
+                                {isSelected ? '✓' : String.fromCharCode(65 + index)}
+                            </span>
+                            <span className={`flex-1 ${mode === 'live_proyektor' ? 'text-xl' : 'text-sm'}`}>
+                                {option.text}
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+
+            {interactive && (
+                <div className="mt-4 flex items-center gap-3">
+                    {locked ? (
+                        <span className="text-xs font-medium text-emerald-700">
+                            Suara terkirim ✓ — pilihanmu terkunci.
+                        </span>
+                    ) : (
+                        <>
+                            <button
+                                type="button"
+                                disabled={selected === null || sending}
+                                onClick={() =>
+                                    submitAndMark(
+                                        onSubmitAnswer,
+                                        { option_index: selected },
+                                        setSubmitted,
+                                        setSending,
+                                    )
+                                }
+                                className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                {sending ? 'Mengirim...' : 'Kirim Suara'}
+                            </button>
+                            <span className="text-xs text-zinc-500">Polling tidak dinilai.</span>
+                        </>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function formatCheckpointTime(totalSeconds) {
+    const seconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+    const minutes = Math.floor(seconds / 60);
+    const rest = seconds % 60;
+    return `${minutes}:${String(rest).padStart(2, '0')}`;
+}
+
+function InteractiveVideoBlock({ data, mode, onSubmitAnswer, initialAnswer = null }) {
+    const videoRef = useRef(null);
+    const interactive = mode === 'live_hp_siswa' || mode === 'mandiri_siswa';
+    const checkpoints = data.checkpoints;
+
+    const savedAnswers = useMemo(() => {
+        const result = {};
+        const raw = initialAnswer?.answers ?? {};
+        Object.entries(raw ?? {}).forEach(([key, value]) => {
+            const optionIndex = Number(value);
+            if (Number.isInteger(optionIndex)) result[key] = optionIndex;
+        });
+        return result;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [JSON.stringify(initialAnswer?.answers ?? {})]);
+
+    const [answers, setAnswers] = useState(savedAnswers);
+    const [answered, setAnswered] = useState(() => Object.keys(savedAnswers).map(Number));
+    const [activeIndex, setActiveIndex] = useState(null);
+    const [selection, setSelection] = useState(null);
+    const [feedback, setFeedback] = useState(null);
+    const [sending, setSending] = useState(false);
+
+    useEffect(() => {
+        setAnswers(savedAnswers);
+        setAnswered(Object.keys(savedAnswers).map(Number));
+        setActiveIndex(null);
+        setSelection(null);
+        setFeedback(null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [data.url, checkpoints.length]);
+
+    const sortedCheckpoints = useMemo(
+        () =>
+            checkpoints
+                .map((checkpoint, index) => ({ ...checkpoint, index }))
+                .sort((a, b) => a.at - b.at),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [checkpoints.map((checkpoint) => `${checkpoint.at}:${checkpoint.question}`).join('|')],
+    );
+
+    function openCheckpoint(index) {
+        const video = videoRef.current;
+        if (video && !video.paused) video.pause();
+        setActiveIndex(index);
+        setSelection(answers[index] ?? null);
+        setFeedback(null);
+    }
+
+    function guardPlayback() {
+        if (!interactive || activeIndex !== null) return;
+
+        const video = videoRef.current;
+        if (!video) return;
+
+        const next = sortedCheckpoints.find(
+            (checkpoint) => !answered.includes(checkpoint.index) && video.currentTime >= checkpoint.at,
+        );
+
+        if (next) {
+            if (video.currentTime > next.at + 0.05) {
+                video.currentTime = next.at;
+            }
+            openCheckpoint(next.index);
+        }
+    }
+
+    async function confirmAnswer() {
+        if (activeIndex === null || selection === null || sending) return;
+
+        const checkpoint = checkpoints[activeIndex];
+        const cumulative = { ...answers, [activeIndex]: selection };
+        const hasLocalKey = checkpoint && checkpoint.correctIndex !== null;
+
+        if (onSubmitAnswer) {
+            setSending(true);
+            try {
+                const ok = await onSubmitAnswer({ answers: cumulative });
+                if (ok === false && !hasLocalKey) return; // server gagal: jangan tandai terjawab
+            } finally {
+                setSending(false);
+            }
+        }
+
+        setAnswers(cumulative);
+        setAnswered((current) => (current.includes(activeIndex) ? current : [...current, activeIndex]));
+
+        if (hasLocalKey) {
+            setFeedback({ correct: selection === checkpoint.correctIndex });
+        } else {
+            closeCheckpoint(true);
+        }
+    }
+
+    function closeCheckpoint(resume) {
+        setActiveIndex(null);
+        setSelection(null);
+        setFeedback(null);
+        if (resume) videoRef.current?.play().catch(() => {});
+    }
+
+    const activeCheckpoint = activeIndex !== null ? checkpoints[activeIndex] : null;
+
+    return (
+        <figure>
+            <Heading mode={mode} kicker={BLOCK_LABELS.materi_video_interaktif}>
+                {data.title}
+            </Heading>
+
+            {data.url ? (
+                <video
+                    ref={videoRef}
+                    controls
+                    src={data.url}
+                    onTimeUpdate={guardPlayback}
+                    onSeeking={guardPlayback}
+                    className="aspect-video w-full rounded-lg bg-black"
+                />
+            ) : (
+                <div
+                    className={`flex aspect-video items-center justify-center rounded-lg border border-dashed text-xs ${
+                        mode === 'live_proyektor' ? 'border-zinc-700 text-zinc-500' : 'border-zinc-200 text-zinc-400'
+                    }`}
+                >
+                    Belum ada video.
+                </div>
+            )}
+
+            {checkpoints.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                    {checkpoints.map((checkpoint, index) => (
+                        <span
+                            key={index}
+                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 font-mono text-[11px] ${
+                                answered.includes(index)
+                                    ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                    : mode === 'live_proyektor'
+                                      ? 'border-zinc-700 bg-zinc-900 text-zinc-400'
+                                      : 'border-zinc-200 bg-zinc-50 text-zinc-500'
+                            }`}
+                        >
+                            Checkpoint {index + 1} · {formatCheckpointTime(checkpoint.at)}
+                            {answered.includes(index) ? ' ✓' : ''}
+                        </span>
+                    ))}
+                </div>
+            )}
+
+            {interactive && activeCheckpoint && (
+                <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
+                    <div className="mb-2 font-mono text-[11px] uppercase tracking-widest text-emerald-700">
+                        Checkpoint {activeIndex + 1} · {formatCheckpointTime(activeCheckpoint.at)}
+                    </div>
+                    <p className="mb-3 text-sm font-medium text-zinc-900">{activeCheckpoint.question}</p>
+                    <div className="space-y-2">
+                        {activeCheckpoint.options.map((option, optionIndex) => (
+                            <label
+                                key={optionIndex}
+                                className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 text-sm transition-colors ${
+                                    selection === optionIndex
+                                        ? 'border-emerald-400 bg-white'
+                                        : 'border-zinc-200 bg-white hover:border-emerald-300'
+                                }`}
+                            >
+                                <input
+                                    type="radio"
+                                    name={`checkpoint-${activeIndex}`}
+                                    checked={selection === optionIndex}
+                                    disabled={feedback !== null}
+                                    onChange={() => setSelection(optionIndex)}
+                                    className="accent-emerald-600"
+                                />
+                                <span className="flex-1">{option.text}</span>
+                                {feedback !== null && activeCheckpoint.correctIndex === optionIndex && (
+                                    <span className="font-mono text-[10px] uppercase tracking-wider text-emerald-600">
+                                        kunci
+                                    </span>
+                                )}
+                            </label>
+                        ))}
+                    </div>
+
+                    {feedback !== null ? (
+                        <div className="mt-3 flex flex-wrap items-center gap-3">
+                            <span
+                                className={`text-xs font-medium ${feedback.correct ? 'text-emerald-700' : 'text-red-600'}`}
+                            >
+                                {feedback.correct ? 'Tepat.' : 'Belum tepat.'}
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => closeCheckpoint(true)}
+                                className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700"
+                            >
+                                Lanjutkan video
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="mt-3 flex items-center gap-3">
+                            <button
+                                type="button"
+                                disabled={selection === null || sending}
+                                onClick={confirmAnswer}
+                                className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                {sending ? 'Mengirim...' : 'Jawab'}
+                            </button>
+                            <span className="text-xs text-zinc-500">
+                                Video berlanjut setelah pertanyaan ini dijawab.
+                            </span>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {!interactive && checkpoints.length > 0 && (
+                <div className="mt-4 space-y-2">
+                    {checkpoints.map((checkpoint, index) => (
+                        <div
+                            key={index}
+                            className={`rounded-lg border px-3 py-2.5 ${
+                                mode === 'live_proyektor'
+                                    ? 'border-zinc-700 bg-zinc-900'
+                                    : 'border-zinc-200 bg-white'
+                            }`}
+                        >
+                            <div
+                                className={`font-mono text-[11px] uppercase tracking-widest ${
+                                    mode === 'live_proyektor' ? 'text-emerald-400' : 'text-emerald-700'
+                                }`}
+                            >
+                                Checkpoint {index + 1} · {formatCheckpointTime(checkpoint.at)}
+                            </div>
+                            <p className={`mt-1 font-medium ${mode === 'live_proyektor' ? 'text-lg' : 'text-sm'}`}>
+                                {checkpoint.question}
+                            </p>
+                            <ul className={`mt-1 space-y-0.5 ${mode === 'live_proyektor' ? 'text-base text-zinc-300' : 'text-xs text-zinc-600'}`}>
+                                {checkpoint.options.map((option, optionIndex) => (
+                                    <li key={optionIndex}>
+                                        {String.fromCharCode(65 + optionIndex)}. {option.text}
+                                        {mode === 'editor_guru' && checkpoint.correctIndex === optionIndex && (
+                                            <span className="ml-2 font-mono text-[10px] uppercase tracking-wider text-emerald-600">
+                                                kunci
+                                            </span>
+                                        )}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </figure>
+    );
+}
+
+function FlashcardDeck({ data, mode }) {
+    const cards = data.cards;
+    const [order, setOrder] = useState(() => cards.map((_, index) => index));
+    const [position, setPosition] = useState(0);
+    const [flipped, setFlipped] = useState(false);
+    const [known, setKnown] = useState(() => new Set());
+
+    const cardsSignature = cards.map((card) => `${card.front}|${card.back}`).join('||');
+    useEffect(() => {
+        setOrder(cards.map((_, index) => index));
+        setPosition(0);
+        setFlipped(false);
+        setKnown(new Set());
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [cardsSignature]);
+
+    if (cards.length === 0) return null;
+
+    const cardIndex = order[Math.min(position, order.length - 1)] ?? 0;
+    const card = cards[cardIndex];
+    const isKnown = known.has(cardIndex);
+    const big = mode === 'live_hp_siswa';
+
+    function goTo(nextPosition) {
+        setPosition(Math.min(cards.length - 1, Math.max(0, nextPosition)));
+        setFlipped(false);
+    }
+
+    function shuffleDeck() {
+        const copy = cards.map((_, index) => index);
+        for (let i = copy.length - 1; i > 0; i -= 1) {
+            const swap = Math.floor(Math.random() * (i + 1));
+            [copy[i], copy[swap]] = [copy[swap], copy[i]];
+        }
+        setOrder(copy);
+        setPosition(0);
+        setFlipped(false);
+    }
+
+    function toggleKnown() {
+        setKnown((current) => {
+            const next = new Set(current);
+            if (next.has(cardIndex)) next.delete(cardIndex);
+            else next.add(cardIndex);
+            return next;
+        });
+    }
+
+    return (
+        <div>
+            <div className="[perspective:1200px]">
+                <button
+                    type="button"
+                    onClick={() => setFlipped((value) => !value)}
+                    aria-label={flipped ? 'Balik ke sisi depan kartu' : 'Balik kartu untuk melihat jawaban'}
+                    className="relative block h-64 w-full text-left"
+                >
+                    <span
+                        className="absolute inset-0 block transition-transform duration-500 [transform-style:preserve-3d]"
+                        style={{ transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }}
+                    >
+                        <span className="absolute inset-0 flex flex-col rounded-xl border border-emerald-200 bg-emerald-50/70 p-5 [backface-visibility:hidden]">
+                            <span className="font-mono text-[10px] uppercase tracking-wider text-emerald-700">
+                                Istilah · ketuk untuk membalik
+                            </span>
+                            <span
+                                className={`mt-3 flex flex-1 items-center font-display font-bold leading-snug text-emerald-950 ${
+                                    big ? 'text-2xl' : 'text-xl'
+                                }`}
+                            >
+                                {card.front}
+                            </span>
+                            {isKnown && (
+                                <span className="self-start rounded-md bg-emerald-600 px-2 py-0.5 text-[11px] font-medium text-white">
+                                    ✓ Sudah hafal
+                                </span>
+                            )}
+                        </span>
+                        <span
+                            className="absolute inset-0 flex flex-col rounded-xl border border-zinc-200 bg-white p-5 [backface-visibility:hidden]"
+                            style={{ transform: 'rotateY(180deg)' }}
+                        >
+                            <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-400">
+                                Penjelasan
+                            </span>
+                            <span
+                                className={`mt-3 flex-1 whitespace-pre-line leading-relaxed text-zinc-700 ${
+                                    big ? 'text-base' : 'text-sm'
+                                }`}
+                            >
+                                {card.back}
+                            </span>
+                        </span>
+                    </span>
+                </button>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                    type="button"
+                    onClick={() => goTo(position - 1)}
+                    disabled={position <= 0}
+                    className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                    ← Sebelumnya
+                </button>
+                <span className="font-mono text-xs text-zinc-500">
+                    Kartu {Math.min(position + 1, cards.length)}/{cards.length}
+                </span>
+                <button
+                    type="button"
+                    onClick={() => goTo(position + 1)}
+                    disabled={position >= cards.length - 1}
+                    className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                    Berikutnya →
+                </button>
+                <button
+                    type="button"
+                    onClick={shuffleDeck}
+                    className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                >
+                    🔀 Acak
+                </button>
+                <button
+                    type="button"
+                    onClick={toggleKnown}
+                    className={`rounded-lg px-3 py-2 text-xs font-medium ${
+                        isKnown
+                            ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                            : 'border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                    }`}
+                >
+                    {isKnown ? '✓ Sudah hafal' : 'Tandai sudah hafal'}
+                </button>
+                <span className="ml-auto font-mono text-xs text-zinc-500">
+                    Hafal: {known.size}/{cards.length}
+                </span>
+            </div>
+        </div>
+    );
+}
+
 export default function DynamicBlockRenderer({
     block,
     mode = 'editor_guru',
@@ -720,6 +2311,8 @@ export default function DynamicBlockRenderer({
     showAnswer = false,
     onSubmitAnswer = null,
     initialAnswer = null,
+    initialCorrect = null,
+    pollResults = null,
     className = '',
 }) {
     const safeMode = MODES.includes(mode) ? mode : 'editor_guru';
@@ -731,6 +2324,33 @@ export default function DynamicBlockRenderer({
     let inner = null;
 
     switch (type) {
+        case 'section_heading':
+            inner = <SectionHeadingBlock data={data} mode={safeMode} />;
+            break;
+
+        case 'materi_richtext':
+            inner = (
+                <>
+                    <Heading mode={safeMode} kicker={BLOCK_LABELS[type]}>
+                        {data.title}
+                    </Heading>
+                    <RichText body={data.body} mode={safeMode} />
+                </>
+            );
+            break;
+
+        case 'materi_video':
+            inner = <VideoBlock data={data} mode={safeMode} />;
+            break;
+
+        case 'materi_file':
+            inner = <FileBlock data={data} mode={safeMode} />;
+            break;
+
+        case 'materi_embed':
+            inner = <EmbedBlock data={data} mode={safeMode} />;
+            break;
+
         case 'materi_teks':
             inner = (
                 <>
@@ -786,7 +2406,15 @@ export default function DynamicBlockRenderer({
             break;
 
         case 'materi_flashcard':
-            inner = (
+            inner =
+                safeMode === 'live_hp_siswa' || safeMode === 'mandiri_siswa' ? (
+                    <>
+                        <Heading mode={safeMode} kicker={BLOCK_LABELS[type]}>
+                            {data.title}
+                        </Heading>
+                        <FlashcardDeck data={data} mode={safeMode} />
+                    </>
+                ) : (
                 <>
                     <Heading mode={safeMode} kicker={BLOCK_LABELS[type]}>
                         {data.title}
@@ -824,7 +2452,7 @@ export default function DynamicBlockRenderer({
                         ))}
                     </div>
                 </>
-            );
+                );
             break;
 
         case 'slide_image': {
@@ -882,6 +2510,35 @@ export default function DynamicBlockRenderer({
                     reveal={showAnswer}
                     onSubmitAnswer={onSubmitAnswer}
                     initialAnswer={initialAnswer}
+                    initialCorrect={initialCorrect}
+                />
+            );
+            break;
+
+        case 'soal_truefalse':
+            inner = (
+                <TrueFalseBlock
+                    data={data}
+                    mode={safeMode}
+                    points={points}
+                    reveal={showAnswer}
+                    onSubmitAnswer={onSubmitAnswer}
+                    initialAnswer={initialAnswer}
+                    initialCorrect={initialCorrect}
+                />
+            );
+            break;
+
+        case 'soal_fillblank':
+            inner = (
+                <FillBlankBlock
+                    data={data}
+                    mode={safeMode}
+                    points={points}
+                    reveal={showAnswer}
+                    onSubmitAnswer={onSubmitAnswer}
+                    initialAnswer={initialAnswer}
+                    initialCorrect={initialCorrect}
                 />
             );
             break;
@@ -895,6 +2552,7 @@ export default function DynamicBlockRenderer({
                     reveal={showAnswer}
                     onSubmitAnswer={onSubmitAnswer}
                     initialAnswer={initialAnswer}
+                    initialCorrect={initialCorrect}
                 />
             );
             break;
@@ -908,6 +2566,7 @@ export default function DynamicBlockRenderer({
                     reveal={showAnswer}
                     onSubmitAnswer={onSubmitAnswer}
                     initialAnswer={initialAnswer}
+                    initialCorrect={initialCorrect}
                 />
             );
             break;
@@ -921,6 +2580,43 @@ export default function DynamicBlockRenderer({
                     rubric={block?.ai_rubric}
                     onSubmitAnswer={onSubmitAnswer}
                     initialAnswer={initialAnswer}
+                />
+            );
+            break;
+
+        case 'soal_hotspot':
+            inner = (
+                <HotspotBlock
+                    data={data}
+                    mode={safeMode}
+                    points={points}
+                    reveal={showAnswer}
+                    onSubmitAnswer={onSubmitAnswer}
+                    initialAnswer={initialAnswer}
+                    initialCorrect={initialCorrect}
+                />
+            );
+            break;
+
+        case 'materi_video_interaktif':
+            inner = (
+                <InteractiveVideoBlock
+                    data={data}
+                    mode={safeMode}
+                    onSubmitAnswer={onSubmitAnswer}
+                    initialAnswer={initialAnswer}
+                />
+            );
+            break;
+
+        case 'polling':
+            inner = (
+                <PollingBlock
+                    data={data}
+                    mode={safeMode}
+                    onSubmitAnswer={onSubmitAnswer}
+                    initialAnswer={initialAnswer}
+                    pollResults={pollResults}
                 />
             );
             break;
@@ -945,7 +2641,7 @@ export default function DynamicBlockRenderer({
                     {total ? ` / ${String(total).padStart(2, '0')}` : ''} · {BLOCK_LABELS[type] ?? type}
                 </div>
             )}
-            <Shell mode={safeMode}>{inner}</Shell>
+            {type === 'section_heading' ? inner : <Shell mode={safeMode}>{inner}</Shell>}
         </div>
     );
 }

@@ -29,7 +29,7 @@ function ScorePill({ score, isPassed, kktp }) {
     );
 }
 
-export default function StudentHome({ student, placement, active_year, summary, modules = [], active_sessions = [] }) {
+export default function StudentHome({ student, placement, active_year, summary, modules = [], practice_progress = {}, active_sessions = [] }) {
     const firstName = (student?.name ?? '').split(' ')[0];
 
     return (
@@ -154,6 +154,28 @@ export default function StudentHome({ student, placement, active_year, summary, 
                                     Detail nilai
                                 </Link>
                             </div>
+                            {module.allow_practice && (
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <Link
+                                        href={`/student/modules/${module.id}/practice`}
+                                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700"
+                                    >
+                                        Belajar Mandiri
+                                    </Link>
+                                    {practice_progress[module.id] &&
+                                        (practice_progress[module.id].completed_at ? (
+                                            <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                                                🏅 Tuntas
+                                            </span>
+                                        ) : (
+                                            practice_progress[module.id].percent > 0 && (
+                                                <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-mono text-xs text-emerald-700">
+                                                    Latihan {practice_progress[module.id].percent}%
+                                                </span>
+                                            )
+                                        ))}
+                                </div>
+                            )}
                         </Card>
                     ))}
                 </div>

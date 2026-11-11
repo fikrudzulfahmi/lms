@@ -138,6 +138,7 @@ class ModuleController
                 'id' => $module->id,
                 'title' => $module->title,
                 'status' => $module->status,
+                'allow_practice' => (bool) $module->allow_practice,
                 'assessment_type' => $module->assessment_type,
                 'kktp_score' => $module->kktp_score,
                 'max_attempts' => $module->max_attempts,
@@ -164,6 +165,7 @@ class ModuleController
                 'index' => route('teacher.modules.index'),
                 'update' => route('teacher.modules.update', $module),
                 'blocks' => route('teacher.modules.blocks.store', $module),
+                'upload' => route('teacher.modules.blocks.upload', $module),
                 'reorder' => route('teacher.modules.blocks.reorder', $module),
                 'slides' => route('teacher.modules.slides.store', $module),
                 'ai_generate' => route('teacher.modules.ai.generate', $module),
@@ -236,14 +238,24 @@ class ModuleController
     private function blockTypeOptions(): array
     {
         return [
+            ['value' => 'section_heading', 'label' => 'Judul Bagian', 'group' => 'Materi'],
+            ['value' => 'materi_richtext', 'label' => 'Teks Kaya', 'group' => 'Materi'],
+            ['value' => 'materi_video', 'label' => 'Video', 'group' => 'Materi'],
+            ['value' => 'materi_video_interaktif', 'label' => 'Video Interaktif', 'group' => 'Materi'],
+            ['value' => 'materi_file', 'label' => 'Lampiran Berkas', 'group' => 'Materi'],
+            ['value' => 'materi_embed', 'label' => 'Tautan / Embed', 'group' => 'Materi'],
             ['value' => 'materi_teks', 'label' => 'Teks Materi', 'group' => 'Materi'],
             ['value' => 'materi_accordion', 'label' => 'Accordion SOP', 'group' => 'Materi'],
             ['value' => 'materi_flashcard', 'label' => 'Flashcard', 'group' => 'Materi'],
             ['value' => 'slide_image', 'label' => 'Slide Gambar', 'group' => 'Materi'],
             ['value' => 'soal_mcq', 'label' => 'Pilihan Ganda', 'group' => 'Soal'],
+            ['value' => 'soal_truefalse', 'label' => 'Benar / Salah', 'group' => 'Soal'],
+            ['value' => 'soal_fillblank', 'label' => 'Isian Singkat', 'group' => 'Soal'],
             ['value' => 'soal_sequencing', 'label' => 'Urutan Prosedur', 'group' => 'Soal'],
             ['value' => 'soal_matching', 'label' => 'Mencocokkan', 'group' => 'Soal'],
+            ['value' => 'soal_hotspot', 'label' => 'Labeli Gambar / Hotspot', 'group' => 'Soal'],
             ['value' => 'soal_essay_ai', 'label' => 'Studi Kasus Esai', 'group' => 'Soal'],
+            ['value' => 'polling', 'label' => 'Polling Kilat', 'group' => 'Soal'],
         ];
     }
 }

@@ -164,6 +164,27 @@ class LiveSessionService
             $content['keyless'] = true;
         }
 
+        if ($type === ModuleBlock::BLOCK_SOAL_HOTSPOT) {
+            // Seperti matching: posisi titik boleh terlihat, tetapi pasangan
+            // titik→label adalah kunci. Label dikirim terpisah dan teracak.
+            $spots = array_values((array) ($content['spots'] ?? []));
+            $labels = array_values(array_filter(array_map(
+                fn ($spot) => is_array($spot) ? (string) ($spot['label'] ?? '') : '',
+                $spots,
+            )));
+            shuffle($labels);
+
+            $content['spots'] = array_map(
+                fn ($spot) => [
+                    'x' => is_array($spot) ? (float) ($spot['x'] ?? 0) : 0.0,
+                    'y' => is_array($spot) ? (float) ($spot['y'] ?? 0) : 0.0,
+                ],
+                $spots,
+            );
+            $content['labels'] = $labels;
+            $content['keyless'] = true;
+        }
+
         if ($type === ModuleBlock::BLOCK_SOAL_MATCHING) {
             $pairs = array_values((array) ($content['pairs'] ?? []));
             $rights = array_values(array_filter(array_map(
@@ -221,10 +242,29 @@ class LiveSessionService
         $content = $block->content ?? [];
         $points = (float) ($block->points ?? 0);
 
+        // Video interaktif dinilai proporsional (rasio checkpoint benar),
+        // bukan lulus/gagal seperti blok objektif lain.
+        if ($block->block_type === ModuleBlock::BLOCK_MATERI_VIDEO_INTERAKTIF) {
+            $ratio = $this->gradeInteractiveVideoRatio($content, $answer);
+
+            if ($ratio === null) {
+                return ['earned_points' => 0.0, 'is_graded' => false, 'correct' => null];
+            }
+
+            return [
+                'earned_points' => round($points * $ratio, 2),
+                'is_graded' => true,
+                'correct' => $ratio >= 1.0,
+            ];
+        }
+
         $correct = match ($block->block_type) {
             ModuleBlock::BLOCK_SOAL_MCQ => $this->gradeMcq($content, $answer),
+            ModuleBlock::BLOCK_SOAL_TRUEFALSE => $this->gradeTrueFalse($content, $answer),
+            ModuleBlock::BLOCK_SOAL_FILLBLANK => $this->gradeFillBlank($content, $answer),
             ModuleBlock::BLOCK_SOAL_SEQUENCING => $this->gradeSequencing($content, $answer),
             ModuleBlock::BLOCK_SOAL_MATCHING => $this->gradeMatching($content, $answer),
+            ModuleBlock::BLOCK_SOAL_HOTSPOT => $this->gradeHotspot($content, $answer),
             default => null,
         };
 
@@ -249,6 +289,47 @@ class LiveSessionService
         $options = array_values((array) ($content['options'] ?? []));
 
         return isset($options[(int) $index]) && (bool) ($options[(int) $index]['correct'] ?? false);
+    }
+
+    /**
+     * @param  array<string, mixed>  $content
+     * @param  array<string, mixed>  $answer
+     */
+    private function gradeTrueFalse(array $content, array $answer): bool
+    {
+        $given = $answer['value'] ?? null;
+        $key = $content['answer'] ?? null;
+
+        return is_bool($given) && is_bool($key) && $given === $key;
+    }
+
+    /**
+     * @param  array<string, mixed>  $content
+     * @param  array<string, mixed>  $answer
+     */
+    private function gradeFillBlank(array $content, array $answer): bool
+    {
+        $given = $this->normalizeFillBlankText($answer['text'] ?? null);
+        if ($given === '') {
+            return false;
+        }
+
+        foreach ((array) ($content['answers'] ?? []) as $accepted) {
+            if ($this->normalizeFillBlankText($accepted) !== '' && $this->normalizeFillBlankText($accepted) === $given) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function normalizeFillBlankText(mixed $value): string
+    {
+        if (! is_string($value) && ! is_numeric($value)) {
+            return '';
+        }
+
+        return (string) preg_replace('/\s+/u', ' ', mb_strtolower(trim((string) $value)));
     }
 
     /**
@@ -294,5 +375,65 @@ class LiveSessionService
         }
 
         return true;
+    }
+
+    /**
+     * Hotspot: payload {assignments: {"<indeks titik>": "<label>"}}.
+     * Benar hanya bila SEMUA titik mendapat label yang tepat.
+     *
+     * @param  array<string, mixed>  $content
+     * @param  array<string, mixed>  $answer
+     */
+    private function gradeHotspot(array $content, array $answer): bool
+    {
+        $spots = array_values((array) ($content['spots'] ?? []));
+        $given = (array) ($answer['assignments'] ?? []);
+
+        if (count($spots) === 0) {
+            return false;
+        }
+
+        foreach ($spots as $index => $spot) {
+            $label = is_array($spot) ? (string) ($spot['label'] ?? '') : '';
+            $assigned = $given[$index] ?? $given[(string) $index] ?? null;
+
+            if (! is_string($assigned) || $assigned !== $label) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Rasio checkpoint video interaktif yang dijawab benar (0.0–1.0).
+     * Null bila blok tidak memiliki checkpoint sama sekali.
+     * Payload kumulatif: {answers: {"<indeks checkpoint>": <indeks opsi>}}.
+     *
+     * @param  array<string, mixed>  $content
+     * @param  array<string, mixed>  $answer
+     */
+    private function gradeInteractiveVideoRatio(array $content, array $answer): ?float
+    {
+        $checkpoints = array_values((array) ($content['checkpoints'] ?? []));
+        $total = count($checkpoints);
+
+        if ($total === 0) {
+            return null;
+        }
+
+        $given = (array) ($answer['answers'] ?? []);
+        $correctCount = 0;
+
+        foreach ($checkpoints as $index => $checkpoint) {
+            $key = is_array($checkpoint) ? ($checkpoint['correct_index'] ?? null) : null;
+            $submitted = $given[$index] ?? $given[(string) $index] ?? null;
+
+            if ($key !== null && $submitted !== null && (int) $submitted === (int) $key) {
+                $correctCount++;
+            }
+        }
+
+        return $correctCount / $total;
     }
 }
