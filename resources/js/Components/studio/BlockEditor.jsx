@@ -14,6 +14,8 @@ const NEW_TYPES = [
     'soal_hotspot',
     'materi_video_interaktif',
     'polling',
+    'praktik_checklist',
+    'tugas_upload',
 ];
 
 function truncateText(value, max = 90) {
@@ -50,6 +52,10 @@ function contentSummary(type, content) {
             return truncateText(content.url);
         case 'polling':
             return truncateText(content.question);
+        case 'praktik_checklist':
+            return `${(content.steps ?? []).length} langkah · ${truncateText(content.title)}`;
+        case 'tugas_upload':
+            return `${(content.rubric ?? []).length} kriteria rubrik · ${truncateText(content.title)}`;
         default:
             return '';
     }
@@ -290,7 +296,7 @@ export default function BlockEditor({
                 <span className="text-xs font-semibold text-zinc-800">{BLOCK_LABELS[type] ?? type}</span>
 
                 <div className="ml-auto flex items-center gap-2">
-                    {(type.startsWith('soal_') || type === 'materi_video_interaktif') && (
+                    {(type.startsWith('soal_') || type === 'materi_video_interaktif' || type === 'tugas_upload') && (
                         <label className="flex items-center gap-1 text-[11px] text-zinc-500">
                             Poin
                             <input
@@ -1472,6 +1478,173 @@ export default function BlockEditor({
                             disabled={(content.options ?? []).length >= 6}
                         >
                             + Tambah opsi
+                        </Button>
+                    </>
+                )}
+
+                {type === 'praktik_checklist' && (
+                    <>
+                        <Field label="Judul checklist">
+                            <input
+                                value={content.title ?? ''}
+                                onChange={(event) => setContent({ title: event.target.value })}
+                                className={inputClass}
+                                placeholder="Contoh: Checklist Keselamatan Kerja Praktik"
+                                maxLength={180}
+                            />
+                        </Field>
+                        <Field label="Instruksi (opsional)">
+                            <textarea
+                                rows={3}
+                                value={content.instructions ?? ''}
+                                onChange={(event) => setContent({ instructions: event.target.value })}
+                                className={inputClass}
+                                placeholder="Petunjuk pelaksanaan praktik untuk siswa."
+                            />
+                        </Field>
+                        <div className="space-y-2">
+                            <p className="text-xs font-medium text-zinc-600">
+                                Langkah praktik — centang dicatat siswa saat praktik; langkah bertanda
+                                kamera wajib dilampiri foto bukti.
+                            </p>
+                            {(content.steps ?? []).map((step, stepIndex) => (
+                                <RepeaterRow
+                                    key={stepIndex}
+                                    label="langkah"
+                                    onRemove={() => removeItem('steps', stepIndex)}
+                                    canRemove={(content.steps ?? []).length > 2}
+                                >
+                                    <input
+                                        value={typeof step === 'object' ? (step?.label ?? '') : ''}
+                                        onChange={(event) =>
+                                            setArrayItem('steps', stepIndex, { label: event.target.value })
+                                        }
+                                        className={inputClass}
+                                        placeholder={`Langkah ${stepIndex + 1}`}
+                                        maxLength={500}
+                                    />
+                                    <label className="flex items-center gap-2 text-xs text-zinc-600">
+                                        <input
+                                            type="checkbox"
+                                            checked={Boolean(
+                                                typeof step === 'object' ? step?.require_photo : false,
+                                            )}
+                                            onChange={(event) =>
+                                                setArrayItem('steps', stepIndex, {
+                                                    require_photo: event.target.checked,
+                                                })
+                                            }
+                                            className="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
+                                        />
+                                        📷 Wajib foto bukti
+                                    </label>
+                                </RepeaterRow>
+                            ))}
+                        </div>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => addItem('steps', { label: '', require_photo: false })}
+                            disabled={(content.steps ?? []).length >= 30}
+                        >
+                            + Tambah langkah
+                        </Button>
+                    </>
+                )}
+
+                {type === 'tugas_upload' && (
+                    <>
+                        <Field label="Judul tugas">
+                            <input
+                                value={content.title ?? ''}
+                                onChange={(event) => setContent({ title: event.target.value })}
+                                className={inputClass}
+                                placeholder="Contoh: Video Praktik Menggunakan Jangka Sorong"
+                                maxLength={180}
+                            />
+                        </Field>
+                        <Field label="Instruksi (opsional)">
+                            <textarea
+                                rows={3}
+                                value={content.instructions ?? ''}
+                                onChange={(event) => setContent({ instructions: event.target.value })}
+                                className={inputClass}
+                                placeholder="Jelaskan apa yang harus dikumpulkan siswa."
+                            />
+                        </Field>
+                        <div className="grid grid-cols-2 gap-3">
+                            <Field label="Maks berkas">
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={5}
+                                    value={content.max_files ?? 3}
+                                    onChange={(event) =>
+                                        setContent({ max_files: Number(event.target.value) })
+                                    }
+                                    className={inputClass}
+                                />
+                            </Field>
+                            <Field label="Jenis berkas diterima">
+                                <select
+                                    value={content.accept ?? 'file'}
+                                    onChange={(event) => setContent({ accept: event.target.value })}
+                                    className={selectClass}
+                                >
+                                    <option value="file">Semua berkas</option>
+                                    <option value="image">Gambar saja</option>
+                                    <option value="video">Video saja</option>
+                                </select>
+                            </Field>
+                        </div>
+                        <div className="space-y-2">
+                            <p className="text-xs font-medium text-zinc-600">
+                                Rubrik penilaian — nilai persen dihitung dari total skor kriteria, lalu
+                                diskalakan ke poin blok dan masuk buku nilai.
+                            </p>
+                            {(content.rubric ?? []).map((item, itemIndex) => (
+                                <RepeaterRow
+                                    key={itemIndex}
+                                    label="kriteria"
+                                    onRemove={() => removeItem('rubric', itemIndex)}
+                                    canRemove={(content.rubric ?? []).length > 1}
+                                >
+                                    <div className="flex items-start gap-2">
+                                        <input
+                                            value={item?.criterion ?? ''}
+                                            onChange={(event) =>
+                                                setArrayItem('rubric', itemIndex, {
+                                                    criterion: event.target.value,
+                                                })
+                                            }
+                                            className={inputClass}
+                                            placeholder={`Kriteria ${itemIndex + 1}`}
+                                            maxLength={500}
+                                        />
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            max={100}
+                                            value={item?.max_score ?? 10}
+                                            onChange={(event) =>
+                                                setArrayItem('rubric', itemIndex, {
+                                                    max_score: Number(event.target.value),
+                                                })
+                                            }
+                                            className={`${inputClass} w-24 shrink-0 text-right font-mono`}
+                                            title="Skor maksimal kriteria"
+                                        />
+                                    </div>
+                                </RepeaterRow>
+                            ))}
+                        </div>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => addItem('rubric', { criterion: '', max_score: 10 })}
+                            disabled={(content.rubric ?? []).length >= 6}
+                        >
+                            + Tambah kriteria
                         </Button>
                     </>
                 )}

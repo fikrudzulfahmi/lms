@@ -30,6 +30,8 @@ const BLOCK_LABELS = {
     soal_hotspot: 'Labeli Gambar / Hotspot',
     materi_video_interaktif: 'Video Interaktif',
     polling: 'Polling Kilat',
+    praktik_checklist: 'Checklist Praktik',
+    tugas_upload: 'Tugas Unggah',
 };
 
 function text(value, fallback = '') {
@@ -122,7 +124,57 @@ function normalize(content = {}) {
                           : null,
               }))
             : [],
+        instructions: text(c.instructions),
+        // Langkah checklist berupa objek {label, require_photo} — berbeda
+        // dari `steps` soal sequencing yang berupa daftar string.
+        checkSteps: Array.isArray(c.steps)
+            ? c.steps
+                  .filter((step) => step !== null && typeof step === 'object')
+                  .map((step) => ({
+                      label: text(step?.label),
+                      requirePhoto: Boolean(step?.require_photo ?? step?.requirePhoto),
+                  }))
+            : [],
+        maxFiles: Math.max(1, Math.min(5, Number(c.max_files) || 3)),
+        acceptKind: ['image', 'video', 'file'].includes(c.accept) ? c.accept : 'file',
+        rubric: Array.isArray(c.rubric)
+            ? c.rubric.map((item) => ({
+                  criterion: text(item?.criterion),
+                  maxScore: Number(item?.max_score ?? item?.maxScore) || 0,
+              }))
+            : [],
     };
+}
+
+function studentXsrfToken() {
+    const match = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]+)/);
+    return match ? decodeURIComponent(match[1]) : '';
+}
+
+/** Unggah satu berkas siswa ke endpoint student.uploads; kembalikan {url, name, size}. */
+async function uploadStudentFile(file, uploadUrl) {
+    const form = new FormData();
+    form.append('file', file);
+
+    const response = await fetch(uploadUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+            Accept: 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-XSRF-TOKEN': studentXsrfToken(),
+        },
+        body: form,
+    });
+
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        const firstError = payload?.errors ? Object.values(payload.errors).flat()[0] : null;
+        throw new Error(firstError || payload?.message || `Gagal mengunggah (${response.status}).`);
+    }
+
+    return payload;
 }
 
 function formatBytes(size) {
@@ -1897,6 +1949,458 @@ function PollingBlock({ data, mode, onSubmitAnswer, initialAnswer = null, pollRe
     );
 }
 
+function checkedFromSaved(steps, savedChecked) {
+    if (!Array.isArray(savedChecked)) return [];
+
+    return savedChecked
+        .map((value) => Number(value))
+        .filter((index) => Number.isInteger(index) && index >= 0 && index < steps.length);
+}
+
+function photosFromSaved(savedPhotos) {
+    const result = {};
+
+    if (savedPhotos && typeof savedPhotos === 'object' && !Array.isArray(savedPhotos)) {
+        for (const [key, value] of Object.entries(savedPhotos)) {
+            if (typeof value === 'string' && value) result[String(key)] = value;
+        }
+    }
+
+    return result;
+}
+
+function ChecklistBlock({ data, mode, onSubmitAnswer, initialAnswer = null, studentUploadUrl = null }) {
+    const steps = data.checkSteps;
+    const [checked, setChecked] = useState(() => checkedFromSaved(steps, initialAnswer?.checked));
+    const [photos, setPhotos] = useState(() => photosFromSaved(initialAnswer?.photos));
+    const [submitted, setSubmitted] = useState(() => initialAnswer != null);
+    const [sending, setSending] = useState(false);
+    const [uploadingIndex, setUploadingIndex] = useState(null);
+    const [error, setError] = useState(null);
+    const fileInputs = useRef({});
+
+    useEffect(() => {
+        setChecked(checkedFromSaved(steps, initialAnswer?.checked));
+        setPhotos(photosFromSaved(initialAnswer?.photos));
+        setSubmitted(initialAnswer != null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [data.title, steps.length]);
+
+    const interactive = mode === 'live_hp_siswa' || mode === 'mandiri_siswa';
+    const canUpload = interactive && Boolean(studentUploadUrl);
+    const allDone =
+        steps.length > 0 &&
+        steps.every(
+            (step, index) => checked.includes(index) && (!step.requirePhoto || Boolean(photos[String(index)])),
+        );
+
+    function persist(nextChecked, nextPhotos) {
+        const payload = { checked: nextChecked, photos: nextPhotos };
+        if (onSubmitAnswer) {
+            submitAndMark(onSubmitAnswer, payload, setSubmitted, setSending);
+        } else {
+            setSubmitted(true);
+        }
+    }
+
+    function toggleStep(index) {
+        const next = checked.includes(index)
+            ? checked.filter((item) => item !== index)
+            : [...checked, index].sort((a, b) => a - b);
+        setChecked(next);
+        persist(next, photos);
+    }
+
+    async function handlePhoto(event, index) {
+        const file = event.target.files?.[0];
+        event.target.value = '';
+        if (!file || !studentUploadUrl) return;
+
+        setUploadingIndex(index);
+        setError(null);
+        try {
+            const payload = await uploadStudentFile(file, studentUploadUrl);
+            const next = { ...photos, [String(index)]: payload.url };
+            setPhotos(next);
+            persist(checked, next);
+        } catch (caught) {
+            setError(caught.message || 'Gagal mengunggah foto.');
+        } finally {
+            setUploadingIndex(null);
+        }
+    }
+
+    return (
+        <div>
+            <Heading mode={mode} kicker={BLOCK_LABELS.praktik_checklist}>
+                {data.title}
+            </Heading>
+            {data.instructions && <BodyText mode={mode}>{data.instructions}</BodyText>}
+
+            <div className={`mt-4 space-y-2 ${mode === 'live_proyektor' ? 'text-xl' : ''}`}>
+                {steps.map((step, index) => {
+                    const isChecked = checked.includes(index);
+                    const photo = photos[String(index)];
+
+                    return (
+                        <div
+                            key={index}
+                            className={`rounded-lg border px-3.5 py-3 ${
+                                mode === 'live_proyektor'
+                                    ? 'border-zinc-700 bg-zinc-900'
+                                    : isChecked
+                                      ? 'border-emerald-300 bg-emerald-50/60'
+                                      : 'border-zinc-200 bg-white'
+                            }`}
+                        >
+                            <div className="flex items-start gap-3">
+                                <button
+                                    type="button"
+                                    disabled={!interactive}
+                                    onClick={() => toggleStep(index)}
+                                    aria-pressed={isChecked}
+                                    className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border text-sm transition-colors disabled:cursor-default ${
+                                        isChecked
+                                            ? 'border-emerald-600 bg-emerald-600 text-white'
+                                            : mode === 'live_proyektor'
+                                              ? 'border-zinc-600 text-transparent'
+                                              : 'border-zinc-300 text-transparent hover:border-emerald-400'
+                                    }`}
+                                >
+                                    ✓
+                                </button>
+                                <div className="min-w-0 flex-1">
+                                    <p
+                                        className={`${
+                                            mode === 'live_proyektor'
+                                                ? 'text-xl text-zinc-100'
+                                                : 'text-sm text-zinc-800'
+                                        } ${isChecked && mode !== 'live_proyektor' ? 'text-zinc-500 line-through' : ''}`}
+                                    >
+                                        <span className="mr-2 font-mono text-xs text-emerald-600">
+                                            {String(index + 1).padStart(2, '0')}
+                                        </span>
+                                        {step.label}
+                                        {step.requirePhoto && (
+                                            <span
+                                                className="ml-2 align-middle font-mono text-[10px] uppercase tracking-wider text-amber-600"
+                                                title="Langkah ini wajib dilampiri foto"
+                                            >
+                                                📷 wajib foto
+                                            </span>
+                                        )}
+                                    </p>
+
+                                    {step.requirePhoto && (
+                                        <div className="mt-2">
+                                            {photo ? (
+                                                <div className="flex items-center gap-3">
+                                                    <img
+                                                        src={photo}
+                                                        alt={`Foto bukti langkah ${index + 1}`}
+                                                        className="h-14 w-14 rounded-lg border border-zinc-200 object-cover"
+                                                    />
+                                                    {canUpload && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => fileInputs.current[index]?.click()}
+                                                            className="text-xs font-medium text-emerald-700 hover:underline"
+                                                        >
+                                                            Ganti foto
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ) : canUpload ? (
+                                                <button
+                                                    type="button"
+                                                    disabled={uploadingIndex === index}
+                                                    onClick={() => fileInputs.current[index]?.click()}
+                                                    className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                                >
+                                                    {uploadingIndex === index ? 'Mengunggah...' : '📷 Unggah foto bukti'}
+                                                </button>
+                                            ) : interactive ? (
+                                                <p className="text-xs text-zinc-400">
+                                                    Foto bukti diunggah dari halaman siswa.
+                                                </p>
+                                            ) : null}
+                                            <input
+                                                ref={(element) => {
+                                                    fileInputs.current[index] = element;
+                                                }}
+                                                type="file"
+                                                accept="image/*"
+                                                className="hidden"
+                                                onChange={(event) => handlePhoto(event, index)}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+
+            <div className="mt-4">
+                <div className="flex items-center justify-between gap-3 text-xs">
+                    <span className={mode === 'live_proyektor' ? 'text-zinc-400' : 'text-zinc-500'}>
+                        {checked.length} dari {steps.length} langkah tercentang
+                        {sending ? ' · menyimpan...' : submitted ? ' · tersimpan ✓' : ''}
+                    </span>
+                    {allDone && (
+                        <span className="font-medium text-emerald-700">Checklist tuntas 🎉</span>
+                    )}
+                </div>
+                <div
+                    className={`mt-1.5 h-2 overflow-hidden rounded-full ${
+                        mode === 'live_proyektor' ? 'bg-zinc-800' : 'bg-zinc-100'
+                    }`}
+                >
+                    <div
+                        className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                        style={{ width: `${steps.length ? (checked.length / steps.length) * 100 : 0}%` }}
+                    />
+                </div>
+                {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+            </div>
+        </div>
+    );
+}
+
+function TugasUploadBlock({
+    data,
+    mode,
+    points,
+    onSubmitAssignment = null,
+    submission = null,
+    studentUploadUrl = null,
+}) {
+    const [current, setCurrent] = useState(submission);
+    const [files, setFiles] = useState(() => submission?.files ?? []);
+    const [note, setNote] = useState(() => submission?.note ?? '');
+    const [uploading, setUploading] = useState(false);
+    const [sending, setSending] = useState(false);
+    const [error, setError] = useState(null);
+    const fileInput = useRef(null);
+
+    useEffect(() => {
+        setCurrent(submission);
+        setFiles(submission?.files ?? []);
+        setNote(submission?.note ?? '');
+    }, [submission]);
+
+    const interactive = mode === 'mandiri_siswa' && Boolean(onSubmitAssignment);
+    const acceptAttr = data.acceptKind === 'image' ? 'image/*' : data.acceptKind === 'video' ? 'video/*' : undefined;
+    const acceptLabel =
+        data.acceptKind === 'image'
+            ? 'gambar'
+            : data.acceptKind === 'video'
+              ? 'video'
+              : 'berkas (gambar, video, atau dokumen)';
+
+    async function handleUpload(event) {
+        const picked = [...(event.target.files ?? [])];
+        event.target.value = '';
+        if (picked.length === 0 || !studentUploadUrl) return;
+
+        setUploading(true);
+        setError(null);
+        try {
+            const uploaded = [];
+            for (const file of picked) {
+                const payload = await uploadStudentFile(file, studentUploadUrl);
+                uploaded.push({ name: payload.name, url: payload.url, size: payload.size });
+            }
+            setFiles((existing) => [...existing, ...uploaded].slice(0, data.maxFiles));
+        } catch (caught) {
+            setError(caught.message || 'Gagal mengunggah berkas.');
+        } finally {
+            setUploading(false);
+        }
+    }
+
+    async function handleSubmit() {
+        if (!onSubmitAssignment || files.length === 0) return;
+
+        setSending(true);
+        setError(null);
+        try {
+            const result = await onSubmitAssignment({ files, note: note || null });
+            if (result === false) {
+                setError('Gagal mengumpulkan tugas. Coba lagi.');
+            } else if (result?.submission) {
+                setCurrent(result.submission);
+            }
+        } finally {
+            setSending(false);
+        }
+    }
+
+    return (
+        <div>
+            <div className="mb-3 flex items-center gap-2">
+                <span
+                    className={`font-mono text-[11px] uppercase tracking-widest ${
+                        mode === 'live_proyektor' ? 'text-emerald-400' : 'text-emerald-700'
+                    }`}
+                >
+                    {BLOCK_LABELS.tugas_upload}
+                </span>
+                <PointsBadge points={points} mode={mode} />
+            </div>
+            <Heading mode={mode}>{data.title}</Heading>
+            {data.instructions && <BodyText mode={mode}>{data.instructions}</BodyText>}
+
+            {data.rubric.length > 0 && (
+                <div
+                    className={`mt-3 rounded-lg border px-3.5 py-3 ${
+                        mode === 'live_proyektor' ? 'border-zinc-700 bg-zinc-900' : 'border-zinc-200 bg-zinc-50/60'
+                    }`}
+                >
+                    <p
+                        className={`font-mono text-[10px] uppercase tracking-wider ${
+                            mode === 'live_proyektor' ? 'text-zinc-400' : 'text-zinc-400'
+                        }`}
+                    >
+                        Rubrik penilaian
+                    </p>
+                    <ul className={`mt-1.5 space-y-1 ${mode === 'live_proyektor' ? 'text-lg text-zinc-200' : 'text-sm text-zinc-700'}`}>
+                        {data.rubric.map((item, index) => (
+                            <li key={index} className="flex items-baseline justify-between gap-3">
+                                <span>{item.criterion}</span>
+                                <span className="font-mono text-xs text-zinc-400">maks {item.maxScore}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+
+            {mode === 'live_hp_siswa' || mode === 'live_proyektor' ? (
+                <p
+                    className={`mt-4 rounded-lg border px-3.5 py-3 ${
+                        mode === 'live_proyektor'
+                            ? 'border-zinc-700 bg-zinc-900 text-lg text-zinc-300'
+                            : 'border-amber-200 bg-amber-50 text-sm text-amber-700'
+                    }`}
+                >
+                    📥 Tugas ini dikumpulkan lewat halaman <strong>Belajar Mandiri</strong>, bukan di sesi
+                    live ini.
+                </p>
+            ) : interactive ? (
+                <div className="mt-4 space-y-3">
+                    {current?.status === 'graded' ? (
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-3">
+                            <p className="text-sm font-semibold text-emerald-800">
+                                Sudah dinilai · Skor {Number(current.score)}%
+                            </p>
+                            {Array.isArray(current.rubric_scores) && (
+                                <ul className="mt-1.5 space-y-1 text-sm text-emerald-700">
+                                    {data.rubric.map((item, index) => (
+                                        <li key={index} className="flex items-baseline justify-between gap-3">
+                                            <span>{item.criterion}</span>
+                                            <span className="font-mono text-xs">
+                                                {current.rubric_scores[index] ?? 0} / {item.maxScore}
+                                            </span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                            {current.feedback && (
+                                <p className="mt-2 whitespace-pre-line text-sm text-emerald-700">
+                                    💬 {current.feedback}
+                                </p>
+                            )}
+                            <p className="mt-2 text-xs text-emerald-600">
+                                Kamu masih bisa mengumpulkan ulang — nilai lama akan diganti setelah
+                                dinilai kembali.
+                            </p>
+                        </div>
+                    ) : current ? (
+                        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-700">
+                            ⏳ Sudah dikumpulkan — menunggu dinilai guru. Kamu bisa mengumpulkan ulang
+                            bila ada perbaikan.
+                        </p>
+                    ) : null}
+
+                    <div className="space-y-2">
+                        {files.map((file, index) => (
+                            <div
+                                key={`${file.url}-${index}`}
+                                className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2"
+                            >
+                                <span className="text-base">📎</span>
+                                <a
+                                    href={file.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="min-w-0 flex-1 truncate text-sm text-zinc-700 hover:text-emerald-700"
+                                >
+                                    {file.name}
+                                </a>
+                                <span className="font-mono text-[11px] text-zinc-400">
+                                    {formatBytes(file.size)}
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setFiles((existing) => existing.filter((_, i) => i !== index))}
+                                    className="text-xs text-red-500 hover:underline"
+                                >
+                                    Hapus
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+
+                    <input
+                        ref={fileInput}
+                        type="file"
+                        multiple
+                        accept={acceptAttr}
+                        className="hidden"
+                        onChange={handleUpload}
+                    />
+                    <button
+                        type="button"
+                        disabled={uploading || files.length >= data.maxFiles || !studentUploadUrl}
+                        onClick={() => fileInput.current?.click()}
+                        className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                        {uploading ? 'Mengunggah...' : `+ Unggah ${acceptLabel}`}
+                    </button>
+                    <span className="ml-2 text-xs text-zinc-400">
+                        {files.length}/{data.maxFiles} berkas
+                    </span>
+
+                    <textarea
+                        rows={3}
+                        value={note}
+                        onChange={(event) => setNote(event.target.value)}
+                        placeholder="Catatan untuk guru (opsional) — mis. kendala saat praktik."
+                        className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-800 focus:border-emerald-500 focus:outline-none"
+                    />
+
+                    {error && <p className="text-xs text-red-600">{error}</p>}
+
+                    <button
+                        type="button"
+                        disabled={sending || uploading || files.length === 0}
+                        onClick={handleSubmit}
+                        className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                        {sending ? 'Mengumpulkan...' : current ? 'Kumpulkan Ulang Tugas' : 'Kumpulkan Tugas'}
+                    </button>
+                </div>
+            ) : (
+                <p className="mt-4 text-sm text-zinc-500">
+                    Siswa mengumpulkan {acceptLabel} (maks {data.maxFiles} berkas) lewat halaman Belajar
+                    Mandiri; nilai diisi guru dari halaman Pengumpulan Tugas.
+                </p>
+            )}
+        </div>
+    );
+}
+
 function formatCheckpointTime(totalSeconds) {
     const seconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
     const minutes = Math.floor(seconds / 60);
@@ -2313,6 +2817,9 @@ export default function DynamicBlockRenderer({
     initialAnswer = null,
     initialCorrect = null,
     pollResults = null,
+    studentUploadUrl = null,
+    submission = null,
+    onSubmitAssignment = null,
     className = '',
 }) {
     const safeMode = MODES.includes(mode) ? mode : 'editor_guru';
@@ -2617,6 +3124,31 @@ export default function DynamicBlockRenderer({
                     onSubmitAnswer={onSubmitAnswer}
                     initialAnswer={initialAnswer}
                     pollResults={pollResults}
+                />
+            );
+            break;
+
+        case 'praktik_checklist':
+            inner = (
+                <ChecklistBlock
+                    data={data}
+                    mode={safeMode}
+                    onSubmitAnswer={onSubmitAnswer}
+                    initialAnswer={initialAnswer}
+                    studentUploadUrl={studentUploadUrl}
+                />
+            );
+            break;
+
+        case 'tugas_upload':
+            inner = (
+                <TugasUploadBlock
+                    data={data}
+                    mode={safeMode}
+                    points={points}
+                    onSubmitAssignment={onSubmitAssignment}
+                    submission={submission}
+                    studentUploadUrl={studentUploadUrl}
                 />
             );
             break;

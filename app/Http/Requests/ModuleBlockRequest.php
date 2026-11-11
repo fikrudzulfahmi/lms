@@ -133,6 +133,24 @@ abstract class ModuleBlockRequest extends FormRequest
                 'content.options' => ['required', 'array', 'min:2', 'max:6'],
                 'content.options.*' => ['required', 'string', 'max:1000'],
             ],
+            ModuleBlock::BLOCK_PRAKTIK_CHECKLIST => [
+                // Checklist praktik: tidak dinilai angka; selesai bila semua
+                // langkah tercentang + foto wajib terunggah (dicek di practice).
+                'content.title' => ['required', 'string', 'max:180'],
+                'content.instructions' => ['nullable', 'string', 'max:5000'],
+                'content.steps' => ['required', 'array', 'min:2', 'max:30'],
+                'content.steps.*.label' => ['required', 'string', 'max:500'],
+                'content.steps.*.require_photo' => ['nullable', 'boolean'],
+            ],
+            ModuleBlock::BLOCK_TUGAS_UPLOAD => [
+                'content.title' => ['required', 'string', 'max:180'],
+                'content.instructions' => ['nullable', 'string', 'max:5000'],
+                'content.max_files' => ['nullable', 'integer', 'min:1', 'max:5'],
+                'content.accept' => ['nullable', 'string', Rule::in(['image', 'video', 'file'])],
+                'content.rubric' => ['required', 'array', 'min:1', 'max:6'],
+                'content.rubric.*.criterion' => ['required', 'string', 'max:500'],
+                'content.rubric.*.max_score' => ['required', 'integer', 'min:1', 'max:100'],
+            ],
             ModuleBlock::BLOCK_MATERI_VIDEO_INTERAKTIF => [
                 'content.title' => ['nullable', 'string', 'max:180'],
                 'content.url' => ['required', 'string', 'max:2048', 'regex:/^(https?:\/\/|\/)/i'],
@@ -158,6 +176,12 @@ abstract class ModuleBlockRequest extends FormRequest
 
                 if ($isQuestion && $points < 1) {
                     $validator->errors()->add('points', 'Blok soal wajib memiliki poin minimal 1.');
+                }
+
+                // Tugas unggah dinilai guru: nilai persen rubrik diskalakan
+                // ke poin blok, jadi poinnya juga wajib terisi.
+                if ($type === ModuleBlock::BLOCK_TUGAS_UPLOAD && $points < 1) {
+                    $validator->errors()->add('points', 'Blok tugas unggah wajib memiliki poin minimal 1.');
                 }
 
                 if ($validator->errors()->isNotEmpty()) {
