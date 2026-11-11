@@ -13,7 +13,10 @@ return [
     |
     */
 
-    'name' => env('APP_NAME', 'Laravel'),
+    'name' => env('APP_NAME', 'LMS SMK'),
+
+    // Token rahasia untuk /dev/login di staging. Kosong = route mati.
+    'dev_login_token' => env('DEV_LOGIN_TOKEN'),
 
     /*
     |--------------------------------------------------------------------------

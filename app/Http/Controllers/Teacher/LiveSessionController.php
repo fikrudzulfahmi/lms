@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\LearningModule;
 use App\Models\LiveSession;
 use App\Models\ModuleBlock;
+use App\Services\GradeCalculationService;
 use App\Services\LiveSessionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -18,7 +19,10 @@ use Inertia\Response;
 
 class LiveSessionController extends Controller
 {
-    public function __construct(private readonly LiveSessionService $sessions) {}
+    public function __construct(
+        private readonly LiveSessionService $sessions,
+        private readonly GradeCalculationService $grades,
+    ) {}
 
     /**
      * Mulai sesi live untuk modul milik guru.
@@ -132,16 +136,20 @@ class LiveSessionController extends Controller
 
         $session->update(['status' => LiveSession::STATUS_ENDED]);
 
+        // Kunci hasil: hitung ulang rekap nilai modul dari seluruh jawaban siswa.
+        $graded = $this->grades->recalculateModule($session->module);
+
         if ($request->expectsJson()) {
             return response()->json([
                 'ok' => true,
                 'ended_at' => now()->toIso8601String(),
+                'graded' => $graded,
                 'session' => ['id' => $session->id, 'status' => $session->status],
             ]);
         }
 
         return redirect()
             ->route('teacher.modules.edit', $session->module)
-            ->with('success', 'Sesi live diakhiri.');
+            ->with('success', "Sesi live diakhiri. {$graded} rekap nilai siswa diperbarui.");
     }
 }

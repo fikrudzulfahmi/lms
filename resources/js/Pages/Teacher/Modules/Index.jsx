@@ -1,7 +1,7 @@
 import { Head, Link, useForm } from '@inertiajs/react';
 import { useMemo, useState } from 'react';
 import TeacherLayout from '@/Layouts/TeacherLayout';
-import { Badge, Button, EmptyState, Field, Modal, PageHeader, StatCard, inputClass, selectClass } from '@/Components/ui';
+import { Badge, Button, EmptyState, Field, Modal, PageHeader, StatCard, Toolbar, inputClass, selectClass } from '@/Components/ui';
 
 const ASSESSMENT_LABELS = {
     formatif: 'Formatif',
@@ -78,6 +78,7 @@ export default function Index({
             <Head title="Modul Ajar" />
 
             <PageHeader
+                eyebrow="Studio Guru"
                 title="Modul Ajar"
                 subtitle="Susun materi, SOP praktikum, dan soal interaktif dengan block studio."
                 actions={
@@ -88,32 +89,43 @@ export default function Index({
             />
 
             <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <StatCard label="Total Modul" value={stats.total} accent />
-                <StatCard label="Draft" value={stats.draft} />
-                <StatCard label="Terbit" value={stats.published} />
-                <StatCard label="Total Blok" value={stats.blocks} />
+                <StatCard label="Total Modul" value={stats.total} accent hint="Semua modul milik Anda" />
+                <StatCard label="Draft" value={stats.draft} hint="Belum diterbitkan" />
+                <StatCard label="Terbit" value={stats.published} hint="Bisa diakses siswa" />
+                <StatCard label="Total Blok" value={stats.blocks} hint="Materi & soal tersusun" />
             </div>
 
-            <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 bg-white p-3">
-                <input
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Cari judul, mapel, atau kelas..."
-                    className={`${inputClass} max-w-sm`}
-                />
+            <Toolbar>
+                <div className="relative min-w-0 flex-1 sm:max-w-sm">
+                    <svg
+                        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth={1.75}
+                        stroke="currentColor"
+                    >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35M17 10.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z" />
+                    </svg>
+                    <input
+                        value={query}
+                        onChange={(event) => setQuery(event.target.value)}
+                        placeholder="Cari judul, mapel, atau kelas..."
+                        className={`${inputClass} pl-9`}
+                    />
+                </div>
                 <select
                     value={statusFilter}
                     onChange={(event) => setStatusFilter(event.target.value)}
-                    className={`${selectClass} max-w-[160px]`}
+                    className={`${selectClass} !w-auto min-w-[9.5rem] shrink-0`}
                 >
                     <option value="all">Semua status</option>
                     <option value="draft">Draft</option>
                     <option value="published">Terbit</option>
                 </select>
-                <span className="ml-auto font-mono text-xs text-zinc-400">
+                <span className="ml-auto rounded-md bg-zinc-50 px-2 py-1 font-mono text-xs text-zinc-500">
                     {filtered.length} / {modules.length} modul
                 </span>
-            </div>
+            </Toolbar>
 
             {assignments.length === 0 ? (
                 <EmptyState
@@ -135,32 +147,32 @@ export default function Index({
                     }
                 />
             ) : (
-                <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
+                <div className="overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-[0_1px_2px_rgba(24,24,27,0.04)]">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm">
-                            <thead className="border-b border-zinc-100 bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500">
+                            <thead className="border-b border-zinc-100 bg-zinc-50/80 text-[11px] uppercase tracking-wider text-zinc-500">
                                 <tr>
-                                    <th className="px-4 py-3 font-medium">Modul</th>
-                                    <th className="px-4 py-3 font-medium">Mapel & Kelas</th>
-                                    <th className="px-4 py-3 font-medium">Status</th>
-                                    <th className="px-4 py-3 text-right font-medium">Blok</th>
-                                    <th className="px-4 py-3 font-medium">Diperbarui</th>
-                                    <th className="px-4 py-3" />
+                                    <th className="px-4 py-2.5 font-semibold">Modul</th>
+                                    <th className="px-4 py-2.5 font-semibold">Mapel &amp; Kelas</th>
+                                    <th className="px-4 py-2.5 font-semibold">Status</th>
+                                    <th className="px-4 py-2.5 text-right font-semibold">Blok</th>
+                                    <th className="px-4 py-2.5 font-semibold">Diperbarui</th>
+                                    <th className="px-4 py-2.5" />
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-100">
                                 {filtered.map((module) => (
-                                    <tr key={module.id} className="hover:bg-zinc-50/70">
+                                    <tr key={module.id} className="group transition-colors hover:bg-emerald-50/30">
                                         <td className="px-4 py-3">
-                                            <div className="font-medium text-zinc-900">{module.title}</div>
-                                            <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-zinc-500">
+                                            <div className="font-medium text-zinc-900 group-hover:text-emerald-800">{module.title}</div>
+                                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-zinc-500">
                                                 <span>{ASSESSMENT_LABELS[module.assessment_type]}</span>
                                                 <span className="text-zinc-300">·</span>
                                                 <span>KKTP {module.kktp_score}</span>
                                                 {module.objective_code && (
                                                     <>
                                                         <span className="text-zinc-300">·</span>
-                                                        <span className="font-mono text-emerald-700">
+                                                        <span className="rounded bg-emerald-50 px-1.5 py-0.5 font-mono text-[10px] text-emerald-700">
                                                             {module.objective_code}
                                                         </span>
                                                     </>
@@ -174,22 +186,25 @@ export default function Index({
                                             </div>
                                         </td>
                                         <td className="px-4 py-3">
-                                            <Badge tone={module.status === 'published' ? 'emerald' : 'zinc'}>
+                                            <Badge tone={module.status === 'published' ? 'emerald' : 'zinc'} dot>
                                                 {module.status === 'published' ? 'Terbit' : 'Draft'}
                                             </Badge>
                                         </td>
-                                        <td className="px-4 py-3 text-right font-mono text-xs text-zinc-600">
-                                            {module.blocks_count}
+                                        <td className="px-4 py-3 text-right">
+                                            <span className="inline-flex min-w-[1.75rem] justify-center rounded-md bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-700">
+                                                {module.blocks_count}
+                                            </span>
                                         </td>
-                                        <td className="px-4 py-3 text-xs text-zinc-500">
-                                            {formatDate(module.updated_at)}
-                                        </td>
+                                        <td className="px-4 py-3 text-xs text-zinc-500">{formatDate(module.updated_at)}</td>
                                         <td className="px-4 py-3 text-right">
                                             <Link
                                                 href={`/teacher/modules/${module.id}/edit`}
-                                                className="inline-flex items-center rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
+                                                className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors group-hover:border-emerald-300 group-hover:text-emerald-700 hover:bg-emerald-50"
                                             >
-                                                Buka Studio →
+                                                Buka Studio
+                                                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+                                                </svg>
                                             </Link>
                                         </td>
                                     </tr>

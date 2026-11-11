@@ -1,6 +1,6 @@
 import { Head, Link, router } from '@inertiajs/react';
 import GradeMatrix, { ScorePill, StatusBadge } from '@/Components/GradeMatrix';
-import { Card, EmptyState, PageHeader, StatCard, inputClass } from '@/Components/ui';
+import { Card, EmptyState, PageHeader, StatCard, selectClass } from '@/Components/ui';
 import TeacherLayout from '@/Layouts/TeacherLayout';
 
 export default function GradebookIndex({ assignments, filters, matrix, options, urls, has_assignments }) {
@@ -36,14 +36,14 @@ export default function GradebookIndex({ assignments, filters, matrix, options, 
                 }
             />
 
-            <div className="mb-5 flex flex-wrap items-end gap-2 rounded-xl border border-zinc-200 bg-white p-3">
-                <div className="min-w-[11rem]">
-                    <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-zinc-500" htmlFor="filter-year">
+            <div className="mb-5 grid gap-3 rounded-2xl border border-zinc-200/80 bg-white p-3 shadow-[0_1px_2px_rgba(24,24,27,0.04)] sm:grid-cols-3">
+                <div>
+                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-zinc-600" htmlFor="filter-year">
                         Tahun Pelajaran
                     </label>
                     <select
                         id="filter-year"
-                        className={inputClass}
+                        className={selectClass}
                         value={filters.year ?? ''}
                         onChange={(event) => applyFilter('year', event.target.value)}
                     >
@@ -55,13 +55,13 @@ export default function GradebookIndex({ assignments, filters, matrix, options, 
                         ))}
                     </select>
                 </div>
-                <div className="min-w-[11rem]">
-                    <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-zinc-500" htmlFor="filter-classroom">
+                <div>
+                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-zinc-600" htmlFor="filter-classroom">
                         Kelas
                     </label>
                     <select
                         id="filter-classroom"
-                        className={inputClass}
+                        className={selectClass}
                         value={filters.classroom ?? ''}
                         onChange={(event) => applyFilter('classroom', event.target.value)}
                     >
@@ -73,13 +73,13 @@ export default function GradebookIndex({ assignments, filters, matrix, options, 
                         ))}
                     </select>
                 </div>
-                <div className="min-w-[13rem]">
-                    <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-zinc-500" htmlFor="filter-subject">
+                <div>
+                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-zinc-600" htmlFor="filter-subject">
                         Mata Pelajaran
                     </label>
                     <select
                         id="filter-subject"
-                        className={inputClass}
+                        className={selectClass}
                         value={filters.subject ?? ''}
                         onChange={(event) => applyFilter('subject', event.target.value)}
                     >

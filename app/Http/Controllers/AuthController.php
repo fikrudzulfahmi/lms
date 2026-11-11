@@ -45,7 +45,14 @@ class AuthController
      */
     public function devLogin(Request $request): RedirectResponse
     {
-        abort_unless(app()->environment('local'), 404);
+        abort_unless(app()->environment(['local', 'staging']), 404);
+
+        $expected = (string) config('app.dev_login_token', '');
+        $given = $request->string('token')->toString();
+
+        if ($expected === '' || ! hash_equals($expected, $given)) {
+            abort(404);
+        }
 
         $role = $request->string('as')->trim()->toString();
         $role = in_array($role, [User::ROLE_ADMIN, User::ROLE_TEACHER, User::ROLE_STUDENT], true) ? $role : User::ROLE_ADMIN;
@@ -62,12 +69,12 @@ class AuthController
         return redirect($this->homeFor($user));
     }
 
-    private function homeFor(User $user): string
+    public function homeFor(User $user): string
     {
         return match ($user->role) {
             User::ROLE_TEACHER => route('teacher.modules.index'),
             User::ROLE_ADMIN => route('admin.dashboard'),
-            User::ROLE_STUDENT => route('student.live.join'),
+            User::ROLE_STUDENT => route('student.home'),
             default => '/',
         };
     }

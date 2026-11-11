@@ -1,4 +1,5 @@
 import { Head, Link } from '@inertiajs/react';
+import StudentLayout from '@/Layouts/StudentLayout';
 import { ScorePill, StatusBadge } from '@/Components/GradeMatrix';
 import { Card, PageHeader, StatCard } from '@/Components/ui';
 
@@ -10,40 +11,10 @@ const ASSESSMENT_LABELS = {
 
 export default function StudentGrades({ report, active_year }) {
     return (
-        <div className="min-h-screen bg-zinc-50">
+        <StudentLayout>
             <Head title="Nilai Saya" />
 
-            <header className="border-b border-zinc-200 bg-white">
-                <div className="mx-auto flex h-16 w-full max-w-4xl items-center justify-between px-4">
-                    <div className="flex items-center gap-2.5">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 font-display text-sm font-bold text-white">
-                            LMS
-                        </div>
-                        <div>
-                            <div className="font-display text-sm font-bold text-zinc-900">Nilai Saya</div>
-                            <div className="text-xs text-zinc-500">{report.student.name}</div>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <Link
-                            href="/live"
-                            className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50"
-                        >
-                            Live Kelas
-                        </Link>
-                        <Link
-                            href="/logout"
-                            method="post"
-                            as="button"
-                            className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50"
-                        >
-                            Keluar
-                        </Link>
-                    </div>
-                </div>
-            </header>
-
-            <main className="mx-auto w-full max-w-4xl px-4 py-6">
+            <div className="mx-auto w-full max-w-4xl">
                 <PageHeader
                     title="Rapor Nilai"
                     subtitle={
@@ -174,7 +145,7 @@ export default function StudentGrades({ report, active_year }) {
                         </Card>
                     ))}
                 </div>
-            </main>
-        </div>
+            </div>
+        </StudentLayout>
     );
 }

@@ -218,9 +218,15 @@ export default function Stage({
             </header>
 
             <div className="flex flex-wrap items-center gap-3 border-b border-zinc-900 px-5 py-2 text-xs">
-                <span className={`inline-flex items-center gap-1.5 ${connected ? 'text-emerald-400' : 'text-amber-400'}`}>
-                    <span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                    {connected ? 'Realtime tersambung' : socketStatus === 'reconnecting' ? 'Menyambung ulang...' : 'Realtime terputus'}
+                <span className={`inline-flex items-center gap-1.5 ${connected ? 'text-emerald-400' : status === 'ended' ? 'text-zinc-500' : 'text-amber-400'}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-emerald-400' : status === 'ended' ? 'bg-zinc-600' : 'bg-amber-400'}`} />
+                    {status === 'ended'
+                        ? 'Sesi selesai'
+                        : connected
+                          ? 'Realtime tersambung'
+                          : socketStatus === 'reconnecting'
+                            ? 'Menyambung ulang...'
+                            : 'Realtime terputus'}
                 </span>
                 <span className="text-zinc-600">Keyboard ← → untuk pindah slide</span>
                 {(error || lastError) && (

@@ -33,6 +33,22 @@ class GradeCalculationService
     }
 
     /**
+     * Rata-rata dari nilai yang benar-benar ada (null diabaikan).
+     *
+     * @param  array<int, int|float|string|null>  $scores
+     */
+    private function averageOf(array $scores): ?float
+    {
+        $values = array_values(array_filter($scores, fn ($score) => $score !== null && $score !== ''));
+
+        if ($values === []) {
+            return null;
+        }
+
+        return round(array_sum(array_map('floatval', $values)) / count($values), 2);
+    }
+
+    /**
      * @return array<string, float>
      */
     public function weights(): array
@@ -522,7 +538,7 @@ class GradeCalculationService
             'subjects' => $subjects,
             'summary' => [
                 'subjects' => count($subjects),
-                'average' => $subjects === [] ? null : round(collect($subjects)->avg(fn ($s) => $s['final_score'] ?? 0), 2),
+                'average' => $this->averageOf(collect($subjects)->pluck('final_score')->all()),
                 'tuntas' => collect($subjects)->where('status', self::STATUS_TUNTAS)->count(),
                 'belum' => collect($subjects)->where('status', self::STATUS_BELUM)->count(),
             ],

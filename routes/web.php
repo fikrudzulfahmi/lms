@@ -4,6 +4,7 @@ use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Internal\LiveSessionValidationController;
 use App\Http\Controllers\Student\GradeController;
+use App\Http\Controllers\Student\HomeController as StudentHomeController;
 use App\Http\Controllers\Student\LiveController;
 use App\Http\Controllers\Teacher\AiCurriculumController;
 use App\Http\Controllers\Teacher\GradebookController;
@@ -11,10 +12,15 @@ use App\Http\Controllers\Teacher\LiveSessionController;
 use App\Http\Controllers\Teacher\ModuleBlockController;
 use App\Http\Controllers\Teacher\ModuleController;
 use App\Http\Controllers\Teacher\ModuleSlideController;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function () {
-    return redirect('/admin');
+Route::get('/', function (Request $request) {
+    if ($request->user() === null) {
+        return redirect()->route('login');
+    }
+
+    return redirect(app(\App\Http\Controllers\AuthController::class)->homeFor($request->user()));
 });
 
 Route::middleware('guest')->group(function () {
@@ -22,7 +28,7 @@ Route::middleware('guest')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
 });
 
-if (app()->environment('local')) {
+if (app()->environment(['local', 'staging'])) {
     Route::get('/dev/login', [AuthController::class, 'devLogin'])->name('dev.login');
 }
 
@@ -102,6 +108,7 @@ Route::middleware('auth')->group(function () {
     });
 
     Route::prefix('student')->name('student.')->middleware('role:student')->group(function () {
+        Route::get('/', [StudentHomeController::class, 'index'])->name('home');
         Route::get('/grades', [GradeController::class, 'index'])->name('grades.index');
     });
 
