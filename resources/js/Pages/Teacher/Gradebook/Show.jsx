@@ -96,7 +96,7 @@ function OverrideForm({ module, student, onDone }) {
     );
 }
 
-function StudentDrawer({ open, data, loading, onClose, kktp }) {
+function StudentDrawer({ open, data, loading, error, onRetry, onOverrideDone, onClose, kktp }) {
     useEffect(() => {
         function onKey(event) {
             if (event.key === 'Escape') onClose();
@@ -135,6 +135,19 @@ function StudentDrawer({ open, data, loading, onClose, kktp }) {
 
                 <div className="space-y-4 px-5 py-4">
                     {loading && <p className="text-sm text-zinc-500">Memuat jawaban siswa…</p>}
+
+                    {!loading && error && (
+                        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-700">
+                            <p>{error}</p>
+                            <button
+                                type="button"
+                                onClick={onRetry}
+                                className="mt-2 rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
+                            >
+                                Muat ulang
+                            </button>
+                        </div>
+                    )}
 
                     {!loading && data && (
                         <>
@@ -198,7 +211,12 @@ function StudentDrawer({ open, data, loading, onClose, kktp }) {
                                         ))}
                                     </div>
 
-                                    <OverrideForm module={module} student={data.student} />
+                                    <OverrideForm
+                                        key={`${data.student.id}-${module.id}-${module.override_score ?? 'none'}`}
+                                        module={module}
+                                        student={data.student}
+                                        onDone={onOverrideDone}
+                                    />
                                 </section>
                             ))}
                         </>
@@ -213,11 +231,15 @@ export default function GradebookShow({ matrix, urls }) {
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [detail, setDetail] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [detailError, setDetailError] = useState(null);
+    const [lastStudent, setLastStudent] = useState(null);
 
     async function openStudent(student) {
         setDrawerOpen(true);
         setLoading(true);
         setDetail(null);
+        setDetailError(null);
+        setLastStudent(student);
 
         try {
             const response = await fetch(urls.detail.replace('__STUDENT__', String(student.id)), {
@@ -229,6 +251,7 @@ export default function GradebookShow({ matrix, urls }) {
             setDetail(await response.json());
         } catch (error) {
             setDetail(null);
+            setDetailError(error.message || 'Gagal memuat detail siswa.');
         } finally {
             setLoading(false);
         }
@@ -276,10 +299,14 @@ export default function GradebookShow({ matrix, urls }) {
                 open={drawerOpen}
                 data={detail}
                 loading={loading}
+                error={detailError}
+                onRetry={() => lastStudent && openStudent(lastStudent)}
+                onOverrideDone={reloadMatrix}
                 kktp={matrix.summary.kktp}
                 onClose={() => {
                     setDrawerOpen(false);
                     setDetail(null);
+                    setDetailError(null);
                 }}
             />
         </TeacherLayout>

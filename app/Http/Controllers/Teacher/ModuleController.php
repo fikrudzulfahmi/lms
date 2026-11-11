@@ -7,6 +7,7 @@ use App\Http\Requests\UpdateLearningModuleRequest;
 use App\Models\AcademicYear;
 use App\Models\Classroom;
 use App\Models\LearningModule;
+use App\Models\LiveSession;
 use App\Models\LearningObjective;
 use App\Models\TeachingAssignment;
 use App\Models\User;
@@ -123,7 +124,16 @@ class ModuleController
                 'ai_rubric' => $block->ai_rubric,
             ]);
 
+        $activeSession = $module->liveSessions()
+            ->whereIn('status', [LiveSession::STATUS_WAITING, LiveSession::STATUS_ACTIVE])
+            ->latest()
+            ->first();
+
         return Inertia::render('Teacher/Modules/Edit', [
+            'live' => $activeSession === null ? null : [
+                'session_id' => $activeSession->id,
+                'stage_url' => route('teacher.live.show', $activeSession),
+            ],
             'module' => [
                 'id' => $module->id,
                 'title' => $module->title,

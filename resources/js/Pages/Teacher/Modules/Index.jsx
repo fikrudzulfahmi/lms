@@ -302,7 +302,7 @@ export default function Index({
                             <option value="">— tanpa TP —</option>
                             {filteredObjectives.map((objective) => (
                                 <option key={objective.id} value={objective.id}>
-                                    {objective.code} — {objective.description.slice(0, 90)}
+                                    {objective.code} — {String(objective.description ?? '').slice(0, 90)}
                                 </option>
                             ))}
                         </select>

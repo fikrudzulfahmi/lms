@@ -38,8 +38,8 @@ export default function Objectives({
         Object.values(map).forEach((list) =>
             list.sort(
                 (a, b) =>
-                    a.grade_level.localeCompare(b.grade_level) ||
-                    a.code.localeCompare(b.code, undefined, { numeric: true }),
+                    String(a.grade_level ?? '').localeCompare(String(b.grade_level ?? '')) ||
+                    String(a.code ?? '').localeCompare(String(b.code ?? ''), undefined, { numeric: true }),
             ),
         );
         return map;
@@ -235,6 +235,17 @@ export default function Objectives({
                             onChange={(e) => form.setData('code', e.target.value.toUpperCase())}
                         />
                     </Field>
+                    <div className="md:col-span-4">
+                        <Field label="Deskripsi" error={form.errors.description}>
+                            <textarea
+                                className={inputClass}
+                                rows={2}
+                                value={form.data.description}
+                                placeholder="Siswa mampu mendemonstrasikan …"
+                                onChange={(e) => form.setData('description', e.target.value)}
+                            />
+                        </Field>
+                    </div>
                     <div className="flex items-end">
                         <Button
                             type="submit"
@@ -250,17 +261,6 @@ export default function Objectives({
                         </Button>
                     </div>
                 </form>
-                <div className="mt-3">
-                    <Field label="Deskripsi" error={form.errors.description}>
-                        <textarea
-                            className={inputClass}
-                            rows={2}
-                            value={form.data.description}
-                            placeholder="Siswa mampu mendemonstrasikan …"
-                            onChange={(e) => form.setData('description', e.target.value)}
-                        />
-                    </Field>
-                </div>
             </Card>
 
             <div className="mt-4 space-y-4">

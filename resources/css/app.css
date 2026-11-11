@@ -6,19 +6,95 @@
 @theme {
     --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
     --font-display: 'Plus Jakarta Sans', 'Inter', ui-sans-serif, system-ui, sans-serif;
+    --font-serif: 'Fraunces', Georgia, 'Times New Roman', serif;
     --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 
-    /* Clean Emerald & White — brand tokens */
-    --color-brand-50: oklch(0.979 0.021 166.113);
-    --color-brand-100: oklch(0.95 0.052 163.051);
-    --color-brand-200: oklch(0.905 0.093 164.15);
-    --color-brand-300: oklch(0.845 0.143 164.978);
-    --color-brand-400: oklch(0.765 0.177 163.223);
-    --color-brand-500: oklch(0.696 0.17 162.48);
-    --color-brand-600: oklch(0.596 0.145 163.225);
-    --color-brand-700: oklch(0.508 0.118 165.612);
-    --color-brand-800: oklch(0.432 0.095 166.913);
-    --color-brand-900: oklch(0.378 0.077 168.94);
+    /*
+     * Design system "Hijau & Putih" — hijau elegan di atas putih, sesuai permintaan pemilik.
+     *
+     * Halaman-halaman lama memakai kelas bawaan zinc, emerald, dan teal
+     * ratusan kali. Skala bawaan itu SENGAJA ditimpa di sini ke rona baru:
+     * zinc -> abu kehijauan lembut, emerald/teal -> hijau pine yang dalam.
+     * Hasilnya seluruh aplikasi berubah warna tanpa find-replace per file.
+     * Warna status (red/amber/sky) tidak ditimpa agar makna semantiknya utuh.
+     */
+
+    /* Ink — slate kebiruan untuk teks, border, dan permukaan netral */
+    --color-zinc-50: #f7f8f7;
+    --color-zinc-100: #eef2ef;
+    --color-zinc-200: #e2e8e4;
+    --color-zinc-300: #cbd5ce;
+    --color-zinc-400: #8a9a8f;
+    --color-zinc-500: #64756a;
+    --color-zinc-600: #4b5d52;
+    --color-zinc-700: #37473e;
+    --color-zinc-800: #24352c;
+    --color-zinc-900: #16241c;
+    --color-zinc-950: #0b1710;
+
+    /* Pine — emerald yang diperdalam untuk brand, sukses, dan aksen utama */
+    --color-emerald-50: #ecf6f1;
+    --color-emerald-100: #d7ebe0;
+    --color-emerald-200: #b0d6c2;
+    --color-emerald-300: #7fb8a0;
+    --color-emerald-400: #3e8e6e;
+    --color-emerald-500: #17785a;
+    --color-emerald-600: #0e6b52;
+    --color-emerald-700: #0b5b45;
+    --color-emerald-800: #064e3b;
+    --color-emerald-900: #04382b;
+    --color-emerald-950: #022a20;
+
+    --color-teal-300: #7fb8a0;
+    --color-teal-400: #2fa58c;
+    --color-teal-500: #17785a;
+    --color-teal-600: #0e6b52;
+    --color-teal-700: #0b5b45;
+    --color-teal-800: #064e3b;
+
+    /* Ink — navy institusional (sidebar, judul, tombol primer) */
+    --color-ink-50: #ecf6f1;
+    --color-ink-100: #d7ebe0;
+    --color-ink-200: #b0d6c2;
+    --color-ink-600: #0e6b52;
+    --color-ink-700: #0b5b45;
+    --color-ink-800: #064e3b;
+    --color-ink-900: #04382b;
+    --color-ink-950: #022a20;
+
+    /* Brass — emas muted, aksen hemat untuk indikator dan detail premium */
+    --color-brass-50: #ecf6f1;
+    --color-brass-100: #d7ebe0;
+    --color-brass-200: #b0d6c2;
+    --color-brass-300: #a7d7c0;
+    --color-brass-400: #4fae8a;
+    --color-brass-500: #2f9e75;
+    --color-brass-600: #17785a;
+    --color-brass-700: #0b5b45;
+    --color-brass-800: #064e3b;
+
+    /* Pine — alias eksplisit dari emerald yang diperdalam */
+    --color-pine-50: #ecf6f1;
+    --color-pine-100: #d7ebe0;
+    --color-pine-600: #0e6b52;
+    --color-pine-700: #0b5b45;
+    --color-pine-800: #064e3b;
+
+    /* Brand tokens — sekarang menunjuk ke pine */
+    --color-brand-50: #ecf6f1;
+    --color-brand-100: #d7ebe0;
+    --color-brand-200: #b0d6c2;
+    --color-brand-300: #7fb8a0;
+    --color-brand-400: #3e8e6e;
+    --color-brand-500: #17785a;
+    --color-brand-600: #0e6b52;
+    --color-brand-700: #0b5b45;
+    --color-brand-800: #064e3b;
+    --color-brand-900: #04382b;
+
+    /* Elevasi lembut bernada hijau tua, bukan hitam pekat */
+    --shadow-card: 0 1px 2px rgba(4, 56, 43, 0.06), 0 12px 32px -16px rgba(4, 56, 43, 0.16);
+    --shadow-raised: 0 2px 4px rgba(4, 56, 43, 0.07), 0 20px 44px -20px rgba(4, 56, 43, 0.24);
 }
 
 @layer base {
@@ -32,17 +108,31 @@
     }
 
     ::selection {
-        @apply bg-emerald-200 text-emerald-950;
+        @apply bg-brass-200 text-ink-950;
     }
 
     :focus-visible {
-        @apply outline-none ring-2 ring-emerald-500/40 ring-offset-1 ring-offset-white;
+        @apply outline-none ring-2 ring-brass-500/40 ring-offset-1 ring-offset-white;
+    }
+
+    /* Tabel di semua halaman: header institusional + hover halus.
+       Kelas utilitas di markup tetap menang atas gaya dasar ini. */
+    table thead th {
+        @apply bg-zinc-50 text-[11px] font-semibold uppercase tracking-wider text-zinc-500;
+    }
+
+    table tbody tr {
+        @apply transition-colors;
+    }
+
+    table tbody tr:hover {
+        background-color: rgba(247, 248, 247, 0.7);
     }
 
     /* Slim neutral scrollbars to keep tables tidy */
     * {
         scrollbar-width: thin;
-        scrollbar-color: #d4d4d8 transparent;
+        scrollbar-color: #cbd5ce transparent;
     }
 
     *::-webkit-scrollbar {
@@ -51,7 +141,7 @@
     }
 
     *::-webkit-scrollbar-thumb {
-        background-color: #d4d4d8;
+        background-color: #cbd5ce;
         border-radius: 9999px;
     }
 

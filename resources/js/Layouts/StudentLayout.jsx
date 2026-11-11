@@ -44,20 +44,22 @@ function NavIcon({ name, className = 'h-4 w-4' }) {
 }
 
 export default function StudentLayout({ children }) {
-    const { url, auth, appName, active_year } = usePage().props;
+    const page = usePage();
+    const { auth, appName, active_year } = page.props;
+    const url = page.url;
 
     return (
-        <div className="flex min-h-full bg-zinc-50">
-            <aside className="hidden w-60 shrink-0 flex-col border-r border-zinc-200 bg-white md:flex">
-                <Link href="/student" className="flex h-16 items-center gap-2.5 border-b border-zinc-200 px-5">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 font-display text-sm font-bold text-white">
+        <div className="flex min-h-screen bg-zinc-50">
+            <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col bg-ink-950 md:flex">
+                <Link href="/student" className="flex h-16 items-center gap-2.5 border-b border-white/10 px-5">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brass-500 font-display text-sm font-bold text-white">
                         LMS
                     </div>
                     <div className="min-w-0">
-                        <div className="truncate font-display text-sm font-bold text-zinc-900">
+                        <div className="truncate font-display text-sm font-bold text-white">
                             {appName ?? 'LMS SMK'}
                         </div>
-                        <div className="text-xs text-zinc-500">Ruang Siswa</div>
+                        <div className="text-xs text-white/50">Ruang Siswa</div>
                     </div>
                 </Link>
 
@@ -70,27 +72,27 @@ export default function StudentLayout({ children }) {
                                 href={item.href}
                                 preserveScroll
                                 className={
-                                    'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ' +
+                                    'group relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ' +
                                     (active
-                                        ? 'bg-emerald-50 text-emerald-700'
-                                        : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900')
+                                        ? 'bg-white/10 text-white'
+                                        : 'text-zinc-300 hover:bg-white/5 hover:text-white')
                                 }
                             >
-                                <NavIcon name={item.icon} className={'h-4 w-4 ' + (active ? 'text-emerald-600' : 'text-zinc-400')} />
+                                <NavIcon name={item.icon} className={'h-4 w-4 ' + (active ? 'text-brass-300' : 'text-white/40')} />
                                 {item.label}
                             </Link>
                         );
                     })}
                 </nav>
 
-                <div className="border-t border-zinc-200 p-3">
-                    <div className="mb-2 flex items-center gap-2.5 rounded-lg bg-zinc-50 px-3 py-2">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-xs font-semibold text-white">
+                <div className="border-t border-white/10 p-3">
+                    <div className="mb-2 flex items-center gap-2.5 rounded-lg bg-white/5 px-3 py-2">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brass-500 text-xs font-semibold text-white">
                             {(auth?.user?.name ?? '?').slice(0, 1).toUpperCase()}
                         </div>
                         <div className="min-w-0">
-                            <div className="truncate text-sm font-medium text-zinc-900">{auth?.user?.name}</div>
-                            <div className="truncate text-xs text-zinc-500">
+                            <div className="truncate text-sm font-medium text-white">{auth?.user?.name}</div>
+                            <div className="truncate text-xs text-white/50">
                                 {active_year ? `TP ${active_year.name} ${active_year.semester}` : 'Siswa'}
                             </div>
                         </div>
@@ -99,7 +101,7 @@ export default function StudentLayout({ children }) {
                         href="/logout"
                         method="post"
                         as="button"
-                        className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+                        className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-white/60 hover:bg-white/10 hover:text-white"
                     >
                         Keluar
                     </Link>

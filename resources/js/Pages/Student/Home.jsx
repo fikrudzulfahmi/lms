@@ -36,19 +36,19 @@ export default function StudentHome({ student, placement, active_year, summary, 
         <StudentLayout>
             <Head title="Beranda Siswa" />
 
-            <div className="mb-5 overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-600 via-emerald-600 to-teal-700 p-5 text-white sm:p-6">
+            <div className="mb-5 overflow-hidden rounded-[20px] border border-ink-800 bg-gradient-to-br from-ink-950 via-ink-900 to-emerald-800 p-5 text-white shadow-card sm:p-6">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
-                        <p className="text-xs font-medium uppercase tracking-wider text-emerald-100/80">Selamat datang</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-brass-300">Selamat datang</p>
                         <h1 className="mt-1 font-display text-2xl font-bold tracking-tight sm:text-3xl">{firstName || 'Siswa'}</h1>
-                        <p className="mt-1.5 text-sm text-emerald-50/90">
+                        <p className="mt-1.5 text-sm text-white/75">
                             {placement
                                 ? `Kelas ${placement.classroom ?? '—'} · TP ${placement.year ?? '—'} ${placement.semester ?? ''}`
                                 : 'Kamu belum terdaftar di kelas mana pun untuk tahun pelajaran aktif.'}
                         </p>
                     </div>
                     <div className="rounded-xl bg-white/10 px-4 py-3 text-right backdrop-blur-sm">
-                        <div className="text-xs text-emerald-100/80">Rata-rata</div>
+                        <div className="text-xs text-white/60">Rata-rata</div>
                         <div className="font-display text-2xl font-bold">
                             {summary?.average === null || summary?.average === undefined
                                 ? '—'

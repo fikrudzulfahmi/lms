@@ -38,8 +38,8 @@ export default function Subjects({
         if (!term) return subjects;
         return subjects.filter(
             (s) =>
-                s.code.toLowerCase().includes(term) ||
-                s.name.toLowerCase().includes(term) ||
+                String(s.code ?? '').toLowerCase().includes(term) ||
+                String(s.name ?? '').toLowerCase().includes(term) ||
                 (s.department_code ?? '').toLowerCase().includes(term),
         );
     }, [query, subjects]);
