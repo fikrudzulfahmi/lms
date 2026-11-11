@@ -10,6 +10,7 @@ use App\Models\AcademicYear;
 use App\Models\Classroom;
 use App\Models\ClassroomStudent;
 use App\Models\Department;
+use App\Models\LearningModule;
 use App\Models\LearningObjective;
 use App\Models\Subject;
 use App\Models\TeachingAssignment;
@@ -19,6 +20,7 @@ use App\Services\IndukApiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -569,5 +571,120 @@ class AdminController
         $assignment->delete();
 
         return back()->with('success', 'Ploting dihapus.');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Kelola Guru
+    |--------------------------------------------------------------------------
+    */
+
+    public function teachers(): Response
+    {
+        $teachers = User::where('role', User::ROLE_TEACHER)
+            ->withCount('teachingAssignments')
+            ->orderBy('name')
+            ->get();
+
+        $moduleCounts = LearningModule::query()
+            ->join('teaching_assignments as ta', 'ta.id', '=', 'learning_modules.teaching_assignment_id')
+            ->whereIn('ta.teacher_id', $teachers->pluck('id'))
+            ->groupBy('ta.teacher_id')
+            ->selectRaw('ta.teacher_id as teacher_id, count(*) as total')
+            ->pluck('total', 'teacher_id');
+
+        return Inertia::render('Admin/Teachers', [
+            'teachers' => $teachers->map(fn (User $t) => [
+                'id' => $t->id,
+                'name' => $t->name,
+                'username' => $t->username,
+                'email' => $t->email,
+                'is_active' => $t->is_active,
+                'assignments_count' => $t->teaching_assignments_count,
+                'modules_count' => (int) ($moduleCounts[$t->id] ?? 0),
+                'created_at' => $t->created_at?->toIso8601String(),
+            ]),
+        ]);
+    }
+
+    public function storeTeacher(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'username' => ['required', 'string', 'max:255', Rule::unique('users', 'username')],
+            'email' => ['nullable', 'email', 'max:255', Rule::unique('users', 'email')],
+            'password' => ['required', 'string', 'min:8', 'max:255'],
+        ]);
+
+        User::create([
+            'name' => $data['name'],
+            'username' => $data['username'],
+            'email' => $data['email'] ?? null,
+            'password' => $data['password'],
+            'role' => User::ROLE_TEACHER,
+            'is_active' => true,
+        ]);
+
+        return back()->with('success', "Guru {$data['name']} ditambahkan. Sampaikan username dan password awalnya agar bisa login.");
+    }
+
+    public function updateTeacher(Request $request, User $user): RedirectResponse
+    {
+        abort_unless($user->role === User::ROLE_TEACHER, 404);
+
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'username' => ['required', 'string', 'max:255', Rule::unique('users', 'username')->ignore($user->id)],
+            'email' => ['nullable', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
+        ]);
+
+        $user->update($data);
+
+        return back()->with('success', "Data guru {$user->name} diperbarui.");
+    }
+
+    public function toggleTeacherActive(User $user): RedirectResponse
+    {
+        abort_unless($user->role === User::ROLE_TEACHER, 404);
+
+        $user->update(['is_active' => ! $user->is_active]);
+
+        return back()->with(
+            'success',
+            $user->is_active
+                ? "Akun guru {$user->name} diaktifkan kembali."
+                : "Akun guru {$user->name} dinonaktifkan. Ia tidak bisa login selama nonaktif.",
+        );
+    }
+
+    public function resetTeacherPassword(Request $request, User $user): RedirectResponse
+    {
+        abort_unless($user->role === User::ROLE_TEACHER, 404);
+
+        $data = $request->validate([
+            'password' => ['required', 'string', 'min:8', 'max:255'],
+        ]);
+
+        $user->update(['password' => $data['password']]);
+
+        return back()->with('success', "Password guru {$user->name} sudah direset. Sampaikan password barunya.");
+    }
+
+    public function destroyTeacher(User $user): RedirectResponse
+    {
+        abort_unless($user->role === User::ROLE_TEACHER, 404);
+
+        if ($user->teachingAssignments()->exists()) {
+            return back()->with('error', "Guru {$user->name} masih punya ploting mengajar. Hapus plotingnya dulu, atau nonaktifkan akunnya saja.");
+        }
+
+        if ($user->learningObjectives()->exists()) {
+            return back()->with('error', "Guru {$user->name} masih punya tujuan pembelajaran di bank TP. Nonaktifkan akunnya saja agar datanya tetap aman.");
+        }
+
+        $name = $user->name;
+        $user->delete();
+
+        return back()->with('success', "Guru {$name} dihapus.");
     }
 }
