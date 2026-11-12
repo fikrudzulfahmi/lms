@@ -110,7 +110,22 @@ class HomeController extends Controller
                 ->selectRaw('module_blocks.module_id, COUNT(*) as total')
                 ->pluck('total', 'module_id');
 
-        $moduleCards = $modules->map(function (LearningModule $module) use ($scoreByModule, $practiceProgress, $responseCounts) {
+        // Sesi live yang sedang berjalan per modul — kartu modul yang
+        // diklik harus membawa siswa ke tempat ia bisa mulai bekerja:
+        // ruang live bila kelas sedang berjalan, Belajar Mandiri bila
+        // diizinkan, selain itu halaman masuk kelas live (pakai PIN).
+        $activeSessionRows = $modules->isEmpty()
+            ? collect()
+            : LiveSession::query()
+                ->whereIn('module_id', $modules->pluck('id')->all())
+                ->whereIn('status', [LiveSession::STATUS_WAITING, LiveSession::STATUS_ACTIVE])
+                ->with('module:id,title')
+                ->latest('created_at')
+                ->get();
+
+        $sessionByModule = $activeSessionRows->keyBy('module_id');
+
+        $moduleCards = $modules->map(function (LearningModule $module) use ($scoreByModule, $practiceProgress, $responseCounts, $sessionByModule) {
             $assessment = $scoreByModule[$module->id] ?? null;
             $practice = $practiceProgress[$module->id] ?? null;
 
@@ -122,6 +137,19 @@ class HomeController extends Controller
                 (($responseCounts[$module->id] ?? 0) > 0) || (($practice['percent'] ?? 0) > 0) => 'in_progress',
                 default => 'not_started',
             };
+
+            $session = $sessionByModule[$module->id] ?? null;
+
+            if ($session !== null) {
+                $href = route('student.live.room', ['pin' => $session->pin_code]);
+                $actionLabel = 'Masuk Kelas Live';
+            } elseif ($module->allow_practice) {
+                $href = route('student.practice.show', $module);
+                $actionLabel = $workState === 'not_started' ? 'Mulai Belajar' : 'Buka Modul';
+            } else {
+                $href = route('student.live.join');
+                $actionLabel = 'Masuk Kelas Live';
+            }
 
             return [
                 'id' => $module->id,
@@ -137,19 +165,17 @@ class HomeController extends Controller
                 'is_passed' => $assessment['is_passed'] ?? null,
                 'has_override' => $assessment['has_override'] ?? false,
                 'work_state' => $workState,
+                'href' => $href,
+                'action_label' => $actionLabel,
             ];
         })->values();
 
-        $activeSessions = LiveSession::query()
-            ->whereIn('module_id', $modules->pluck('id')->all())
-            ->whereIn('status', [LiveSession::STATUS_WAITING, LiveSession::STATUS_ACTIVE])
-            ->with('module:id,title')
-            ->latest('created_at')
-            ->get()
+        $activeSessions = $activeSessionRows
             ->map(fn (LiveSession $session) => [
                 'pin_code' => $session->pin_code,
                 'status' => $session->status,
                 'module' => $session->module?->title,
+                'module_id' => $session->module_id,
             ])
             ->values();
 

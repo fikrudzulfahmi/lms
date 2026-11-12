@@ -1,4 +1,4 @@
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import StudentLayout from '@/Layouts/StudentLayout';
 import { Badge, Card, EmptyState, PageHeader, StatCard } from '@/Components/ui';
 
@@ -174,7 +174,19 @@ export default function StudentHome({ student, placement, active_year, summary, 
             ) : (
                 <div className="grid gap-3 sm:grid-cols-2">
                     {modules.map((module) => (
-                        <Card key={module.id} className="flex flex-col justify-between gap-3 transition-shadow hover:shadow-md">
+                        <Card
+                            key={module.id}
+                            role="link"
+                            tabIndex={0}
+                            onClick={() => router.visit(module.href)}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    router.visit(module.href);
+                                }
+                            }}
+                            className="flex cursor-pointer flex-col justify-between gap-3 transition-shadow hover:border-emerald-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        >
                             <div>
                                 <div className="mb-1.5 flex items-center gap-2 text-xs text-zinc-500">
                                     <Badge tone="emerald">{module.subject_code || module.subject || 'Mapel'}</Badge>
@@ -189,15 +201,20 @@ export default function StudentHome({ student, placement, active_year, summary, 
                                 <ModuleStatusPill module={module} />
                                 <Link
                                     href="/student/grades"
+                                    onClick={(event) => event.stopPropagation()}
                                     className="text-sm font-medium text-emerald-700 hover:text-emerald-800"
                                 >
                                     Detail nilai
                                 </Link>
                             </div>
+                            {!module.allow_practice && (
+                                <div className="text-sm font-semibold text-emerald-700">{module.action_label} →</div>
+                            )}
                             {module.allow_practice && (
                                 <div className="flex flex-wrap items-center gap-2">
                                     <Link
                                         href={`/student/modules/${module.id}/practice`}
+                                        onClick={(event) => event.stopPropagation()}
                                         className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700"
                                     >
                                         Belajar Mandiri
