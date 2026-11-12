@@ -230,6 +230,7 @@ class ModuleController
                 'ai_generate' => route('teacher.modules.ai.generate', $module),
                 'ai_status' => route('teacher.modules.ai.status', $module),
                 'submissions' => route('teacher.modules.submissions.index', $module),
+                'work' => route('teacher.modules.work', $module),
             ],
         ]);
     }

@@ -794,6 +794,16 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
                         </Link>
                     )}
 
+                    {urls.work && (
+                        <Link
+                            href={urls.work}
+                            className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
+                            title="Lihat semua pekerjaan siswa pada modul ini (live, mandiri, tugas) dan nilai esai yang menunggu"
+                        >
+                            Pekerjaan Siswa
+                        </Link>
+                    )}
+
                     {live?.stage_url ? (
                         <>
                             <Link
