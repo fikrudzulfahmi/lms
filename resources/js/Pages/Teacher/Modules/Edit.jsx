@@ -205,6 +205,9 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
     const [title, setTitle] = useState(module.title);
     const [status, setStatus] = useState(module.status);
     const [allowPractice, setAllowPractice] = useState(module.allow_practice ?? true);
+    const [sequentialLock, setSequentialLock] = useState(module.sequential_lock ?? false);
+    const [importing, setImporting] = useState(false);
+    const [importNotice, setImportNotice] = useState(null);
     const [adding, setAdding] = useState(null);
     const [draggingId, setDraggingId] = useState(null);
     const [aiOpen, setAiOpen] = useState(false);
@@ -466,6 +469,51 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
         }
     }
 
+    async function handleImportFile(event) {
+        const file = event.target.files?.[0];
+        event.target.value = '';
+        if (!file) return;
+
+        setImporting(true);
+        setImportNotice(null);
+
+        try {
+            const form = new FormData();
+            form.append('file', file);
+
+            const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '';
+            const response = await fetch(urls.blocks_import, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': token,
+                },
+                body: form,
+            });
+
+            const payload = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                const firstError = payload?.errors ? Object.values(payload.errors).flat()[0] : null;
+                throw new Error(firstError || payload?.message || 'Gagal mengimpor soal.');
+            }
+
+            setBlocks((current) => [...current, ...payload.blocks]);
+            if (payload.blocks?.length) setSelectedId(payload.blocks[0].id);
+            markSaved(payload.saved_at);
+            setImportNotice({
+                ok: true,
+                text: `${payload.imported} soal berhasil diimpor${payload.skipped ? `, ${payload.skipped} dilewati` : ''}. Periksa kunci jawaban tiap soal sebelum menerbitkan modul.`,
+            });
+        } catch (error) {
+            setImportNotice({ ok: false, text: error.message || 'Gagal mengimpor soal.' });
+        } finally {
+            setImporting(false);
+        }
+    }
+
     async function importSlidesToBlocks(slides, meta, originId) {
         if (!Array.isArray(slides) || slides.length === 0) return;
 
@@ -663,6 +711,21 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
         }
     }
 
+    async function toggleSequentialLock() {
+        const previous = sequentialLock;
+        const next = !sequentialLock;
+        setSequentialLock(next);
+        setSaveState('saving');
+
+        try {
+            const payload = await apiRequest(urls.update, 'PATCH', { sequential_lock: next });
+            markSaved(payload.saved_at);
+        } catch (error) {
+            setSequentialLock(previous);
+            markError(error);
+        }
+    }
+
     const stateBadge = {
         saved: { dot: 'bg-emerald-500', text: 'Tersimpan' },
         saving: { dot: 'bg-amber-400', text: 'Menyimpan...' },
@@ -815,6 +878,32 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
                         Belajar Mandiri {allowPractice ? 'Aktif' : 'Nonaktif'}
                     </button>
 
+                    <button
+                        type="button"
+                        onClick={toggleSequentialLock}
+                        role="switch"
+                        aria-checked={sequentialLock}
+                        title="Di Belajar Mandiri, blok berikutnya terkunci sampai blok sebelumnya selesai dikerjakan siswa"
+                        className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium ${
+                            sequentialLock
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50'
+                        }`}
+                    >
+                        <span
+                            className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${
+                                sequentialLock ? 'bg-emerald-500' : 'bg-zinc-300'
+                            }`}
+                        >
+                            <span
+                                className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${
+                                    sequentialLock ? 'left-3.5' : 'left-0.5'
+                                }`}
+                            />
+                        </span>
+                        Kunci Berurutan {sequentialLock ? 'Aktif' : 'Nonaktif'}
+                    </button>
+
                     <span className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 font-mono text-xs text-zinc-500">
                         {blocks.length} blok
                     </span>
@@ -953,6 +1042,49 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
                                     </span>
                                 </button>
                             ))}
+                        </div>
+
+                        <div className="mt-3 border-t border-zinc-100 pt-3">
+                            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                                Impor Soal
+                            </h3>
+                            <p className="mb-2 text-[11px] leading-relaxed text-zinc-500">
+                                Unggah berkas Word (.docx) atau .rtf berisi soal sesuai format template —
+                                soal yang dikenali menjadi blok baru di akhir modul.
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <label
+                                    className={`inline-block rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100 ${
+                                        importing ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                                    }`}
+                                >
+                                    {importing ? 'Mengimpor...' : 'Unggah .docx / .rtf'}
+                                    <input
+                                        type="file"
+                                        accept=".docx,.rtf"
+                                        className="hidden"
+                                        disabled={importing}
+                                        onChange={handleImportFile}
+                                    />
+                                </label>
+                                <a
+                                    href={urls.blocks_import_template}
+                                    className="text-xs font-medium text-emerald-700 underline hover:text-emerald-800"
+                                >
+                                    Unduh template
+                                </a>
+                            </div>
+                            {importNotice && (
+                                <p
+                                    className={`mt-2 rounded-lg border px-2.5 py-1.5 text-[11px] leading-relaxed ${
+                                        importNotice.ok
+                                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                            : 'border-red-200 bg-red-50 text-red-700'
+                                    }`}
+                                >
+                                    {importNotice.text}
+                                </p>
+                            )}
                         </div>
                     </div>
                 </aside>

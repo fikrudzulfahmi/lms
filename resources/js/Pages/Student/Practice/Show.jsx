@@ -1,7 +1,7 @@
-import { Head, Link } from '@inertiajs/react';
-import { useState } from 'react';
+import { Head, Link, router } from '@inertiajs/react';
+import { useEffect, useState } from 'react';
 import StudentLayout from '@/Layouts/StudentLayout';
-import DynamicBlockRenderer from '@/Components/DynamicBlockRenderer';
+import DynamicBlockRenderer, { BLOCK_LABELS } from '@/Components/DynamicBlockRenderer';
 
 function xsrfToken() {
     const match = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]+)/);
@@ -47,6 +47,12 @@ export default function PracticeShow({ module, blocks = [], progress = {}, submi
     const initialAnswers =
         progress.answers && !Array.isArray(progress.answers) ? progress.answers : {};
 
+    // Blok disimpan di state agar kunci berurutan bisa membuka blok
+    // berikutnya tanpa muat ulang penuh: server mengirim ulang prop blocks
+    // (blok yang baru terbuka kini beserta kontennya) lewat router.reload.
+    const [blocksState, setBlocksState] = useState(blocks);
+    useEffect(() => setBlocksState(blocks), [blocks]);
+
     const [submissions, setSubmissions] = useState(() =>
         initialSubmissions && !Array.isArray(initialSubmissions) ? initialSubmissions : {},
     );
@@ -74,6 +80,12 @@ export default function PracticeShow({ module, blocks = [], progress = {}, submi
         if ('completed_at' in payload) setCompletedAt(payload.completed_at);
     }
 
+    function refreshBlocksIfLocked() {
+        if (module.sequential_lock) {
+            router.reload({ only: ['blocks'], preserveScroll: true, preserveState: true });
+        }
+    }
+
     async function markDone(block) {
         if (completedSet.has(block.id) || busyBlocks.has(block.id)) return;
 
@@ -85,6 +97,7 @@ export default function PracticeShow({ module, blocks = [], progress = {}, submi
             setCompletedBlocks((current) =>
                 current.includes(block.id) ? current : [...current, block.id],
             );
+            refreshBlocksIfLocked();
         } catch (caught) {
             setError(caught.message);
         } finally {
@@ -121,6 +134,9 @@ export default function PracticeShow({ module, blocks = [], progress = {}, submi
                 if (typeof payload.percent === 'number') setPercent(payload.percent);
                 if ('completed_at' in payload) setCompletedAt(payload.completed_at);
                 setError(null);
+                if (Array.isArray(payload.completed_blocks) && payload.completed_blocks.includes(block.id)) {
+                    refreshBlocksIfLocked();
+                }
 
                 // Kontrak blok soal mode latihan: {saved, correct}.
                 return { saved: true, correct: payload.correct ?? null };
@@ -149,6 +165,7 @@ export default function PracticeShow({ module, blocks = [], progress = {}, submi
                 if (typeof payload.percent === 'number') setPercent(payload.percent);
                 if ('completed_at' in payload) setCompletedAt(payload.completed_at);
                 setError(null);
+                refreshBlocksIfLocked();
 
                 return payload;
             } catch (caught) {
@@ -201,6 +218,12 @@ export default function PracticeShow({ module, blocks = [], progress = {}, submi
                     <p className="mt-2 text-xs text-zinc-400">
                         Latihan ini tidak masuk nilai rapor — kerjakan untuk belajar, boleh diulang kapan saja.
                     </p>
+                    {module.sequential_lock && (
+                        <p className="mt-1 text-xs font-medium text-emerald-700">
+                            🔒 Modul ini memakai kunci berurutan: blok berikutnya terbuka setelah blok
+                            sebelumnya selesai.
+                        </p>
+                    )}
                 </div>
             </div>
 
@@ -226,9 +249,28 @@ export default function PracticeShow({ module, blocks = [], progress = {}, submi
             )}
 
             <div className="space-y-4">
-                {blocks.map((block) => {
+                {blocksState.map((block) => {
                     const done = completedSet.has(block.id);
                     const savedAnswer = answers[block.id];
+
+                    if (block.locked) {
+                        return (
+                            <div
+                                key={block.id}
+                                className="rounded-[20px] border border-dashed border-zinc-300 bg-zinc-50 px-5 py-8 text-center"
+                            >
+                                <div className="text-2xl" aria-hidden="true">
+                                    🔒
+                                </div>
+                                <p className="mt-1.5 text-sm font-semibold text-zinc-600">
+                                    {BLOCK_LABELS[block.block_type] ?? 'Blok'} terkunci
+                                </p>
+                                <p className="mt-0.5 text-xs text-zinc-400">
+                                    Selesaikan blok sebelumnya untuk membuka blok ini.
+                                </p>
+                            </div>
+                        );
+                    }
 
                     return (
                         <div key={block.id}>
@@ -275,7 +317,7 @@ export default function PracticeShow({ module, blocks = [], progress = {}, submi
                     );
                 })}
 
-                {blocks.length === 0 && (
+                {blocksState.length === 0 && (
                     <div className="rounded-[20px] border border-dashed border-zinc-200 bg-white px-5 py-10 text-center text-sm text-zinc-400">
                         Modul ini belum memiliki blok materi.
                     </div>

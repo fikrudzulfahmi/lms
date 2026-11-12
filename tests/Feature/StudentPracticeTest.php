@@ -248,6 +248,60 @@ class StudentPracticeTest extends TestCase
         $this->get($this->practiceUrl())->assertRedirect(route('login'));
     }
 
+    public function test_sequential_lock_hides_and_blocks_next_block_until_previous_done(): void
+    {
+        $this->module->update(['sequential_lock' => true]);
+
+        // Materi (blok pertama yang dihitung) terbuka; MCQ terkunci dan
+        // kontennya tidak dikirim sama sekali.
+        $response = $this->actingAs($this->student)->get($this->practiceUrl());
+        $response->assertOk();
+        $response->assertInertia(fn (Assert $page) => $page
+            ->component('Student/Practice/Show')
+            ->where('module.sequential_lock', true)
+            ->where('blocks.1.locked', false)
+            ->where('blocks.2.locked', true)
+            ->where('blocks.2.content', [])
+        );
+
+        // Aksi pada blok terkunci ditolak server, baik menjawab maupun
+        // menandai selesai.
+        $this->actingAs($this->student)->postJson(
+            route('student.practice.answer', $this->module),
+            ['block_id' => $this->mcq->id, 'answer' => ['option_index' => 0]],
+        )->assertUnprocessable();
+
+        $this->actingAs($this->student)->postJson(
+            route('student.practice.progress', $this->module),
+            ['block_id' => $this->mcq->id],
+        )->assertUnprocessable();
+
+        // Selesaikan materi → MCQ terbuka beserta kontennya, lalu bisa dijawab.
+        $this->actingAs($this->student)->postJson(
+            route('student.practice.progress', $this->module),
+            ['block_id' => $this->material->id],
+        )->assertOk();
+
+        $after = $this->actingAs($this->student)->get($this->practiceUrl());
+        $after->assertInertia(fn (Assert $page) => $page
+            ->where('blocks.2.locked', false)
+            ->where('blocks.2.content.question', 'Apa fungsi sensor MAP?')
+        );
+
+        $this->actingAs($this->student)->postJson(
+            route('student.practice.answer', $this->module),
+            ['block_id' => $this->mcq->id, 'answer' => ['option_index' => 0]],
+        )->assertOk()->assertJsonPath('correct', true);
+    }
+
+    public function test_without_sequential_lock_student_can_answer_in_any_order(): void
+    {
+        $this->actingAs($this->student)->postJson(
+            route('student.practice.answer', $this->module),
+            ['block_id' => $this->mcq->id, 'answer' => ['option_index' => 0]],
+        )->assertOk()->assertJsonPath('correct', true);
+    }
+
     public function test_polling_block_can_be_created_and_is_ungraded(): void
     {
         $response = $this->actingAs($this->teacher)->postJson(

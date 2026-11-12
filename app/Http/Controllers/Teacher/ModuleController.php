@@ -129,6 +129,7 @@ class ModuleController
                 'max_attempts' => $module->max_attempts,
                 'status' => LearningModule::STATUS_DRAFT,
                 'allow_practice' => $module->allow_practice,
+                'sequential_lock' => $module->sequential_lock,
                 'settings' => $module->settings,
             ]);
 
@@ -194,6 +195,7 @@ class ModuleController
                 'title' => $module->title,
                 'status' => $module->status,
                 'allow_practice' => (bool) $module->allow_practice,
+                'sequential_lock' => (bool) $module->sequential_lock,
                 'assessment_type' => $module->assessment_type,
                 'kktp_score' => $module->kktp_score,
                 'max_attempts' => $module->max_attempts,
@@ -220,6 +222,8 @@ class ModuleController
                 'index' => route('teacher.modules.index'),
                 'update' => route('teacher.modules.update', $module),
                 'blocks' => route('teacher.modules.blocks.store', $module),
+                'blocks_import' => route('teacher.modules.blocks.import', $module),
+                'blocks_import_template' => route('teacher.modules.blocks.import.template', $module),
                 'upload' => route('teacher.modules.blocks.upload', $module),
                 'reorder' => route('teacher.modules.blocks.reorder', $module),
                 'slides' => route('teacher.modules.slides.store', $module),
