@@ -251,6 +251,7 @@ class LiveSessionTest extends TestCase
     public function test_student_answer_is_stored_and_graded(): void
     {
         $session = $this->startLiveSession();
+        $session->update(['current_block_id' => $this->mcq->id]);
 
         $response = $this->actingAs($this->student)
             ->postJson(route('student.live.respond', ['pin' => $session->pin_code]), [
@@ -276,6 +277,7 @@ class LiveSessionTest extends TestCase
     public function test_wrong_mcq_answer_scores_zero(): void
     {
         $session = $this->startLiveSession();
+        $session->update(['current_block_id' => $this->mcq->id]);
 
         $this->actingAs($this->student)
             ->postJson(route('student.live.respond', ['pin' => $session->pin_code]), [
@@ -290,6 +292,7 @@ class LiveSessionTest extends TestCase
     public function test_essay_answer_is_stored_ungraded_for_ai(): void
     {
         $session = $this->startLiveSession();
+        $session->update(['current_block_id' => $this->essay->id]);
 
         $this->actingAs($this->student)
             ->postJson(route('student.live.respond', ['pin' => $session->pin_code]), [
@@ -301,6 +304,22 @@ class LiveSessionTest extends TestCase
 
         $stored = StudentResponse::query()->firstOrFail();
         $this->assertFalse($stored->is_graded);
+    }
+
+    public function test_answer_for_non_current_block_is_rejected(): void
+    {
+        $session = $this->startLiveSession();
+
+        // Blok aktif saat ini adalah materi (blok pertama); menjawab MCQ
+        // yang belum dibuka guru harus ditolak.
+        $this->actingAs($this->student)
+            ->postJson(route('student.live.respond', ['pin' => $session->pin_code]), [
+                'block_id' => $this->mcq->id,
+                'answer' => ['option_index' => 0],
+            ])
+            ->assertStatus(422);
+
+        $this->assertDatabaseCount('student_responses', 0);
     }
 
     public function test_answer_from_foreign_block_is_rejected(): void

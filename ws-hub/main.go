@@ -11,7 +11,7 @@
 //	hub -> client  {"type":"joined","session":{...},"presence":N,"state":{...},"module":{...}}
 //	hub -> client  {"type":"state","state":{...}}
 //	hub -> client  {"type":"presence","count":N}
-//	hub -> client  {"type":"student_answer","student_name":"...","block_id":"...","answer":{...}}
+//	hub -> guru    {"type":"student_answer","student_name":"...","block_id":"...","answer":{...}}  (hanya guru)
 //	hub -> client  {"type":"error","message":"..."}
 //
 // Teacher joins are authorised by a per-session HMAC control token that only
@@ -239,6 +239,29 @@ func (r *room) broadcastFrame(frame []byte) int {
 
 	delivered := 0
 	for member := range r.clients {
+		select {
+		case member.send <- frame:
+			delivered++
+		default:
+			// Slow client: drop this frame instead of blocking the room.
+		}
+	}
+
+	return delivered
+}
+
+// broadcastToTeachers mengirim frame hanya ke klien guru. Dipakai untuk
+// jawaban siswa: isinya nama + jawaban lengkap, tidak boleh diterima
+// siswa lain di room yang sama.
+func (r *room) broadcastToTeachers(frame []byte) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	delivered := 0
+	for member := range r.clients {
+		if member.role != roleTeacher {
+			continue
+		}
 		select {
 		case member.send <- frame:
 			delivered++
@@ -597,7 +620,9 @@ func (r *room) relayAnswer(c *client, message inboundMessage) {
 		"at":           time.Now().UTC().Format(time.RFC3339),
 	})
 	if err == nil {
-		r.broadcastFrame(frame)
+		// Hanya guru yang boleh menerima jawaban siswa lain. Sebelumnya
+		// frame ini di-broadcast ke semua klien termasuk siswa lain.
+		r.broadcastToTeachers(frame)
 	}
 }
 

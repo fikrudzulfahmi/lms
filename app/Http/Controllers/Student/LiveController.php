@@ -126,6 +126,15 @@ class LiveController extends Controller
             ]);
         }
 
+        // Hanya blok yang sedang ditampilkan guru yang boleh dijawab.
+        // Sebelumnya siswa bisa menjawab blok mana pun selama sesi aktif —
+        // termasuk soal yang belum dibuka guru.
+        if ($session->current_block_id === null || $session->current_block_id !== $block->id) {
+            throw ValidationException::withMessages([
+                'block_id' => 'Soal ini belum dibuka guru. Tunggu sampai soal ditampilkan.',
+            ]);
+        }
+
         if (strlen((string) json_encode($data['answer'])) > (int) config('live.max_answer_bytes', 16384)) {
             throw ValidationException::withMessages([
                 'answer' => 'Jawaban terlalu besar.',
