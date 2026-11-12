@@ -103,6 +103,7 @@ class GradeCalculationService
         $moduleIds = $modules->pluck('id')->all();
         $maxPoints = $this->maxPointsForModules($moduleIds);
         $earned = $this->earnedByStudentForModules($moduleIds);
+        $pending = $this->pendingGradeCounts($moduleIds);
         $studentIds = $this->studentIdsForModules($modules);
         $now = now();
 
@@ -117,6 +118,15 @@ class GradeCalculationService
                 $total = round((float) ($earned[$module->id][$studentId] ?? 0), 2);
                 $score = $max > 0 ? round(min(100, ($total / $max) * 100), 2) : 0.0;
 
+                // Masih ada jawaban soal yang belum dinilai (esai): status
+                // menunggu penilaian, BUKAN graded — sebelumnya siswa seperti
+                // ini tercatat selesai dengan nilai 0.
+                $status = ! $hasResponse
+                    ? ModuleGrade::STATUS_IN_PROGRESS
+                    : (($pending[$module->id][$studentId] ?? 0) > 0
+                        ? ModuleGrade::STATUS_WAITING_AI
+                        : ModuleGrade::STATUS_GRADED);
+
                 $rows[] = [
                     'module_id' => $module->id,
                     'student_id' => $studentId,
@@ -124,10 +134,8 @@ class GradeCalculationService
                     'max_possible_points' => round($max, 2),
                     'final_score' => $score,
                     'is_passed' => $score >= $kktp,
-                    'status' => $hasResponse
-                        ? ModuleGrade::STATUS_GRADED
-                        : ModuleGrade::STATUS_IN_PROGRESS,
-                    'completed_at' => $hasResponse ? $now : null,
+                    'status' => $status,
+                    'completed_at' => $status === ModuleGrade::STATUS_GRADED ? $now : null,
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
@@ -203,6 +211,7 @@ class GradeCalculationService
 
         $maxPoints = $this->maxPointsForModules($moduleIds);
         $earned = $this->earnedByStudentForModules($moduleIds, $studentIds);
+        $pending = $this->pendingGradeCounts($moduleIds, $studentIds);
 
         $grades = ModuleGrade::query()
             ->whereIn('module_id', $moduleIds)
@@ -224,9 +233,16 @@ class GradeCalculationService
             foreach ($modules as $module) {
                 $grade = $grades->get($module->id.':'.$student->id);
                 $max = (float) ($maxPoints[$module->id] ?? 0);
-                $raw = isset($earned[$module->id][$student->id])
-                    ? round(min(100, ($earned[$module->id][$student->id] / max($max, 1)) * 100), 2)
-                    : null;
+
+                // Ada jawaban yang belum dinilai (esai): nilai modul belum
+                // final, jadi tampilkan sebagai menunggu — bukan 0, karena 0
+                // terbaca sebagai nilai asli siswa.
+                $awaiting = ($pending[$module->id][$student->id] ?? 0) > 0;
+                $raw = $awaiting
+                    ? null
+                    : (isset($earned[$module->id][$student->id])
+                        ? round(min(100, ($earned[$module->id][$student->id] / max($max, 1)) * 100), 2)
+                        : null);
 
                 $score = $grade !== null && $grade->override_score !== null
                     ? (float) $grade->override_score
@@ -238,6 +254,7 @@ class GradeCalculationService
                     'assessment_type' => $module->assessment_type,
                     'kktp' => $this->kktpFor($module),
                     'score' => $score,
+                    'awaiting_grade' => $awaiting,
                     'system_score' => $raw,
                     'override_score' => $grade?->override_score !== null ? (float) $grade->override_score : null,
                     'override_reason' => $grade?->override_reason,
@@ -495,6 +512,7 @@ class GradeCalculationService
 
             $assessments = collect($row['modules'])
                 ->filter(fn (array $module) => $module['score'] !== null
+                    || ($module['awaiting_grade'] ?? false)
                     || in_array((string) $module['module_id'], $maskedIds, true))
                 ->map(function (array $module) use ($maskedIds) {
                     $masked = in_array((string) $module['module_id'], $maskedIds, true);
@@ -509,6 +527,7 @@ class GradeCalculationService
                         'has_override' => $module['override_score'] !== null,
                         'status' => $module['status'],
                         'results_pending' => $masked,
+                        'awaiting_grade' => (bool) ($module['awaiting_grade'] ?? false),
                     ];
                 })
                 ->values()
@@ -760,6 +779,41 @@ class GradeCalculationService
         }
 
         return $earned;
+    }
+
+    /**
+     * Jumlah jawaban soal yang belum dinilai per modul per siswa. Di praktik
+     * hanya esai AI yang bisa tertahan belum dinilai (tipe soal lain dinilai
+     * seketika), dan hanya blok berawalan soal_ yang dihitung agar respons
+     * materi/polling/checklist tidak ikut tertahan.
+     *
+     * @param  array<int, int>  $moduleIds
+     * @param  array<int, int>  $studentIds
+     * @return array<int, array<int, int>>
+     */
+    private function pendingGradeCounts(array $moduleIds, array $studentIds = []): array
+    {
+        if ($moduleIds === []) {
+            return [];
+        }
+
+        $rows = DB::table('student_responses as sr')
+            ->join('module_blocks as mb', 'mb.id', '=', 'sr.module_block_id')
+            ->whereIn('mb.module_id', $moduleIds)
+            ->where('sr.is_graded', false)
+            ->where('mb.block_type', 'like', 'soal_%')
+            ->when($studentIds !== [], fn ($query) => $query->whereIn('sr.student_id', $studentIds))
+            ->groupBy('mb.module_id', 'sr.student_id')
+            ->selectRaw('mb.module_id, sr.student_id, COUNT(*) as pending_count')
+            ->get();
+
+        $counts = [];
+
+        foreach ($rows as $row) {
+            $counts[(int) $row->module_id][(int) $row->student_id] = (int) $row->pending_count;
+        }
+
+        return $counts;
     }
 
     /**

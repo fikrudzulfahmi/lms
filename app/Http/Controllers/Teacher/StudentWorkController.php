@@ -176,7 +176,12 @@ class StudentWorkController extends Controller
                 'username' => $student->username,
                 'grade' => $grade === null ? null : [
                     'status' => $grade->status,
-                    'final_score' => $grade->final_score !== null ? (float) $grade->final_score : null,
+                    // Skor hanya ditampilkan bila benar-benar sudah dinilai;
+                    // baris nilai siswa yang belum mengerjakan menyimpan 0
+                    // dan tidak boleh terbaca sebagai nilai asli.
+                    'final_score' => $grade->status === ModuleGrade::STATUS_GRADED && $grade->final_score !== null
+                        ? (float) $grade->final_score
+                        : null,
                 ],
                 'practice' => $progress === null ? null : [
                     'percent' => $eligibleCount > 0

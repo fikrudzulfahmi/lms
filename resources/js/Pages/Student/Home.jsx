@@ -29,6 +29,46 @@ function ScorePill({ score, isPassed, kktp }) {
     );
 }
 
+// Label status pengerjaan modul per siswa: membedakan belum mulai,
+// sedang berjalan, dan sudah selesai tapi menunggu nilai — supaya status
+// satu siswa tidak terlihat sama dengan siswa lain.
+function ModuleStatusPill({ module }) {
+    switch (module.work_state) {
+        case 'graded':
+            return <ScorePill score={module.score} isPassed={module.is_passed} kktp={module.kktp} />;
+        case 'awaiting_grade':
+            return (
+                <span className="inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 font-mono text-xs text-amber-700">
+                    ⏳ menunggu dinilai
+                </span>
+            );
+        case 'awaiting_release':
+            return (
+                <span className="inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 font-mono text-xs text-amber-700">
+                    ⏳ menunggu diumumkan
+                </span>
+            );
+        case 'practice_done':
+            return (
+                <span className="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-mono text-xs text-emerald-700">
+                    latihan tuntas
+                </span>
+            );
+        case 'in_progress':
+            return (
+                <span className="inline-flex items-center rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 font-mono text-xs text-zinc-600">
+                    sedang dikerjakan
+                </span>
+            );
+        default:
+            return (
+                <span className="inline-flex items-center rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 font-mono text-xs text-zinc-500">
+                    belum dikerjakan
+                </span>
+            );
+    }
+}
+
 export default function StudentHome({ student, placement, active_year, summary, modules = [], practice_progress = {}, active_sessions = [] }) {
     const firstName = (student?.name ?? '').split(' ')[0];
 
@@ -146,7 +186,7 @@ export default function StudentHome({ student, placement, active_year, summary, 
                                 </p>
                             </div>
                             <div className="flex items-center justify-between border-t border-zinc-100 pt-3">
-                                <ScorePill score={module.score} isPassed={module.is_passed} kktp={module.kktp} />
+                                <ModuleStatusPill module={module} />
                                 <Link
                                     href="/student/grades"
                                     className="text-sm font-medium text-emerald-700 hover:text-emerald-800"
