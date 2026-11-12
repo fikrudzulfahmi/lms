@@ -68,21 +68,6 @@ class HomeController extends Controller
             }
         }
 
-        $moduleCards = $modules->map(fn (LearningModule $module) => [
-            'id' => $module->id,
-            'title' => $module->title,
-            'subject' => $module->teachingAssignment?->subject?->name,
-            'subject_code' => $module->teachingAssignment?->subject?->code,
-            'teacher' => $module->teachingAssignment?->teacher?->name,
-            'assessment_type' => $module->assessment_type,
-            'allow_practice' => (bool) $module->allow_practice,
-            'kktp' => (int) ($module->kktp_score ?? 0),
-            'blocks_count' => (int) ($module->blocks_count ?? 0),
-            'score' => $scoreByModule[$module->id]['score'] ?? null,
-            'is_passed' => $scoreByModule[$module->id]['is_passed'] ?? null,
-            'has_override' => $scoreByModule[$module->id]['has_override'] ?? false,
-        ])->values();
-
         // Progres belajar mandiri per modul (untuk chip latihan di kartu).
         $practiceProgress = [];
         if ($modules->isNotEmpty()) {
@@ -109,6 +94,51 @@ class HomeController extends Controller
                 ];
             }
         }
+
+        // Status pengerjaan per modul untuk label kartu siswa. "belum
+        // dinilai" saja membingungkan: siswa yang belum mulai dan yang
+        // sudah selesai tapi menunggu nilai terlihat sama. Bedakan:
+        // belum dikerjakan / sedang dikerjakan / menunggu dinilai /
+        // menunggu diumumkan / latihan tuntas / sudah ada nilai.
+        $responseCounts = $modules->isEmpty()
+            ? collect()
+            : \App\Models\StudentResponse::query()
+                ->join('module_blocks', 'module_blocks.id', '=', 'student_responses.module_block_id')
+                ->where('student_responses.student_id', $student->id)
+                ->whereIn('module_blocks.module_id', $modules->pluck('id')->all())
+                ->groupBy('module_blocks.module_id')
+                ->selectRaw('module_blocks.module_id, COUNT(*) as total')
+                ->pluck('total', 'module_id');
+
+        $moduleCards = $modules->map(function (LearningModule $module) use ($scoreByModule, $practiceProgress, $responseCounts) {
+            $assessment = $scoreByModule[$module->id] ?? null;
+            $practice = $practiceProgress[$module->id] ?? null;
+
+            $workState = match (true) {
+                (bool) ($assessment['results_pending'] ?? false) => 'awaiting_release',
+                (bool) ($assessment['awaiting_grade'] ?? false) => 'awaiting_grade',
+                ($assessment['score'] ?? null) !== null => 'graded',
+                ($practice['completed_at'] ?? null) !== null => 'practice_done',
+                (($responseCounts[$module->id] ?? 0) > 0) || (($practice['percent'] ?? 0) > 0) => 'in_progress',
+                default => 'not_started',
+            };
+
+            return [
+                'id' => $module->id,
+                'title' => $module->title,
+                'subject' => $module->teachingAssignment?->subject?->name,
+                'subject_code' => $module->teachingAssignment?->subject?->code,
+                'teacher' => $module->teachingAssignment?->teacher?->name,
+                'assessment_type' => $module->assessment_type,
+                'allow_practice' => (bool) $module->allow_practice,
+                'kktp' => (int) ($module->kktp_score ?? 0),
+                'blocks_count' => (int) ($module->blocks_count ?? 0),
+                'score' => $assessment['score'] ?? null,
+                'is_passed' => $assessment['is_passed'] ?? null,
+                'has_override' => $assessment['has_override'] ?? false,
+                'work_state' => $workState,
+            ];
+        })->values();
 
         $activeSessions = LiveSession::query()
             ->whereIn('module_id', $modules->pluck('id')->all())

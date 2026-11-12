@@ -131,6 +131,8 @@ export default function StudentGrades({ report, active_year }) {
                                                         <td className="px-2 py-1.5 text-right text-xs">
                                                             {assessment.results_pending ? (
                                                                 <span className="font-medium text-amber-700">Menunggu diumumkan guru</span>
+                                                            ) : assessment.awaiting_grade ? (
+                                                                <span className="font-medium text-amber-700">⏳ Menunggu dinilai</span>
                                                             ) : assessment.score === null || assessment.score === undefined ? (
                                                                 <span className="text-zinc-500">Belum dinilai</span>
                                                             ) : assessment.is_passed ? (
