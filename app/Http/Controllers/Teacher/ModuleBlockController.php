@@ -2,16 +2,20 @@
 
 namespace App\Http\Controllers\Teacher;
 
+use App\Http\Requests\ImportQuestionsRequest;
 use App\Http\Requests\ReorderModuleBlocksRequest;
 use App\Http\Requests\StoreModuleBlockRequest;
 use App\Http\Requests\UpdateModuleBlockRequest;
 use App\Http\Requests\UploadModuleAssetRequest;
 use App\Models\LearningModule;
 use App\Models\ModuleBlock;
+use App\Services\QuestionImportService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class ModuleBlockController
 {
@@ -33,6 +37,65 @@ class ModuleBlockController
             'block' => $this->serialize($block),
             'saved_at' => now()->toIso8601String(),
         ], 201);
+    }
+
+    /**
+     * Impor soal dari berkas Word (.docx) atau RTF: soal yang dikenali
+     * ditambahkan sebagai blok baru di akhir modul.
+     */
+    public function importQuestions(
+        ImportQuestionsRequest $request,
+        LearningModule $module,
+        QuestionImportService $importer,
+    ): JsonResponse {
+        $text = $importer->extractText($request->file('file'));
+        $result = $importer->parseQuestions($text);
+
+        if ($result['questions'] === []) {
+            throw ValidationException::withMessages([
+                'file' => 'Tidak ada soal yang bisa dikenali dari berkas ini. Periksa formatnya (unduh template sebagai contoh), lalu coba lagi.',
+            ]);
+        }
+
+        $blocks = DB::transaction(function () use ($module, $result) {
+            $next = $module->blocks()->max('order_index') === null
+                ? 0
+                : ((int) $module->blocks()->max('order_index')) + 1;
+
+            $created = [];
+
+            foreach ($result['questions'] as $question) {
+                $created[] = $module->blocks()->create([
+                    'order_index' => $next++,
+                    'block_type' => $question['block_type'],
+                    'points' => $question['points'],
+                    'content' => $question['content'],
+                ]);
+            }
+
+            return $created;
+        });
+
+        return response()->json([
+            'blocks' => array_map(fn (ModuleBlock $block) => $this->serialize($block), $blocks),
+            'imported' => count($blocks),
+            'skipped' => $result['skipped'],
+            'warnings' => $result['warnings'],
+            'saved_at' => now()->toIso8601String(),
+        ], 201);
+    }
+
+    /**
+     * Unduh template .rtf berisi petunjuk format + contoh soal impor.
+     */
+    public function importTemplate(LearningModule $module, QuestionImportService $importer): Response
+    {
+        \Illuminate\Support\Facades\Gate::authorize('update', $module);
+
+        return response($importer->templateRtf(), 200, [
+            'Content-Type' => 'application/rtf',
+            'Content-Disposition' => 'attachment; filename="template-impor-soal.rtf"',
+        ]);
     }
 
     public function uploadAsset(UploadModuleAssetRequest $request, LearningModule $module): JsonResponse

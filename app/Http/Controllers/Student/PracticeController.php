@@ -36,23 +36,36 @@ class PracticeController extends Controller
             'teachingAssignment.teacher:id,name',
         ]);
 
+        $progress = $this->progressFor($request, $module);
+
+        // Kunci berurutan: blok sesudah blok pertama yang belum selesai
+        // terkunci — kontennya TIDAK dikirim sama sekali agar tidak bisa
+        // diintip siswa dari data halaman.
+        $lockedIds = $this->lockedBlockIds(
+            $module,
+            array_map('strval', $progress?->completed_blocks ?? []),
+        );
+
         $blocks = $module->blocks()
             ->orderBy('order_index')
             ->orderBy('created_at')
             ->get()
-            ->map(fn (ModuleBlock $block) => [
-                'id' => $block->id,
-                'order_index' => $block->order_index,
-                'block_type' => $block->block_type,
-                'points' => $block->points,
-                // Mode latihan: konten dikirim apa adanya (termasuk kunci)
-                // agar blok bisa memeriksa jawaban secara lokal. ai_rubric
-                // TIDAK ikut — itu rahasia penilaian AI guru.
-                'content' => $block->content,
-            ])
-            ->values();
+            ->map(function (ModuleBlock $block) use ($lockedIds) {
+                $locked = in_array($block->id, $lockedIds, true);
 
-        $progress = $this->progressFor($request, $module);
+                return [
+                    'id' => $block->id,
+                    'order_index' => $block->order_index,
+                    'block_type' => $block->block_type,
+                    'points' => $block->points,
+                    'locked' => $locked,
+                    // Mode latihan: konten dikirim apa adanya (termasuk kunci)
+                    // agar blok bisa memeriksa jawaban secara lokal. ai_rubric
+                    // TIDAK ikut — itu rahasia penilaian AI guru.
+                    'content' => $locked ? [] : $block->content,
+                ];
+            })
+            ->values();
 
         $submissions = Submission::query()
             ->where('student_id', $request->user()->id)
@@ -71,6 +84,7 @@ class PracticeController extends Controller
                 'subject_code' => $module->teachingAssignment?->subject?->code,
                 'teacher' => $module->teachingAssignment?->teacher?->name,
                 'assessment_type' => $module->assessment_type,
+                'sequential_lock' => (bool) $module->sequential_lock,
             ],
             'blocks' => $blocks,
             'progress' => $this->progressPayload($module, $progress),
@@ -94,6 +108,7 @@ class PracticeController extends Controller
         ]);
 
         $block = $this->findBlock($module, $data['block_id']);
+        $this->ensureUnlocked($request, $module, $block);
 
         if ($block->block_type === ModuleBlock::BLOCK_SECTION_HEADING) {
             throw ValidationException::withMessages([
@@ -142,6 +157,8 @@ class PracticeController extends Controller
         }
 
         $block = $this->findBlock($module, $data['block_id']);
+        $this->ensureUnlocked($request, $module, $block);
+
         $grade = $this->sessions->gradeAnswer($block, $data['answer']);
 
         $progress = $this->progressFor($request, $module, create: true);
@@ -206,6 +223,7 @@ class PracticeController extends Controller
         ]);
 
         $block = $this->findBlock($module, $data['block_id']);
+        $this->ensureUnlocked($request, $module, $block);
 
         if ($block->block_type !== ModuleBlock::BLOCK_TUGAS_UPLOAD) {
             throw ValidationException::withMessages([
@@ -355,6 +373,66 @@ class PracticeController extends Controller
         }
 
         return $block;
+    }
+
+    /**
+     * Daftar id blok yang terkunci oleh kunci berurutan: semua blok (selain
+     * judul bagian) yang berada SETELAH blok pertama yang belum selesai.
+     * Blok selesai dan blok pertama yang belum selesai tidak terkunci.
+     *
+     * @param  array<int, string>  $completedIds
+     * @return array<int, string>
+     */
+    private function lockedBlockIds(LearningModule $module, array $completedIds): array
+    {
+        if (! $module->sequential_lock) {
+            return [];
+        }
+
+        $orderedIds = $module->blocks()
+            ->where('block_type', '!=', ModuleBlock::BLOCK_SECTION_HEADING)
+            ->orderBy('order_index')
+            ->orderBy('created_at')
+            ->pluck('id')
+            ->map(fn ($id) => (string) $id)
+            ->all();
+
+        $locked = [];
+        $gateClosed = false;
+
+        foreach ($orderedIds as $id) {
+            if ($gateClosed) {
+                $locked[] = $id;
+                continue;
+            }
+
+            if (! in_array($id, $completedIds, true)) {
+                $gateClosed = true;
+            }
+        }
+
+        return $locked;
+    }
+
+    /**
+     * Tolak aksi (jawab / tandai selesai / kumpulkan tugas) pada blok yang
+     * masih terkunci kunci berurutan.
+     */
+    private function ensureUnlocked(Request $request, LearningModule $module, ModuleBlock $block): void
+    {
+        if (! $module->sequential_lock
+            || $block->block_type === ModuleBlock::BLOCK_SECTION_HEADING) {
+            return;
+        }
+
+        $progress = $this->progressFor($request, $module);
+        $completed = array_map('strval', $progress?->completed_blocks ?? []);
+
+        if (in_array($block->id, $this->lockedBlockIds($module, $completed), true)) {
+            throw ValidationException::withMessages([
+                'block_id' => 'Blok ini masih terkunci. Selesaikan blok sebelumnya terlebih dahulu.',
+            ]);
+        }
     }
 
     private function progressFor(Request $request, LearningModule $module, bool $create = false): ?ModuleProgress

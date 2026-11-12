@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'max_attempts',
     'status',
     'allow_practice',
+    'sequential_lock',
     'settings',
     'ai_status',
     'ai_error',
@@ -75,6 +76,7 @@ class LearningModule extends Model
             'kktp_score' => 'integer',
             'max_attempts' => 'integer',
             'allow_practice' => 'boolean',
+            'sequential_lock' => 'boolean',
             'settings' => 'array',
             'ai_generated_at' => 'datetime',
         ];
