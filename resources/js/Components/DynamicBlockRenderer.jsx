@@ -203,8 +203,12 @@ function youtubeVideoId(url) {
 }
 
 /** Parse SATU baris markdown ringan: **tebal**, *miring*, [label](url). Tanpa HTML mentah. */
+const SAFE_URL = '(?:https?:\\/\\/[^\\s)]+|\\/storage\\/[^\\s)]+)';
+
 function renderInline(value, keyPrefix) {
-    const tokens = value.split(/(\*\*[^*\n]+\*\*|\*[^*\n]+\*|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\))/g);
+    const tokens = value.split(
+        new RegExp(`(\\*\\*[^*\\n]+\\*\\*|\\*[^*\\n]+\\*|!\\[[^\\]\\n]*\\]\\(${SAFE_URL}\\)|\\[[^\\]\\n]+\\]\\(${SAFE_URL}\\))`, 'g'),
+    );
 
     return tokens.map((token, index) => {
         const key = `${keyPrefix}-${index}`;
@@ -216,7 +220,21 @@ function renderInline(value, keyPrefix) {
         const italic = token.match(/^\*([^*\n]+)\*$/);
         if (italic) return <em key={key}>{italic[1]}</em>;
 
-        const link = token.match(/^\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)$/);
+        // Gambar di dalam teks: ![keterangan](url)
+        const image = token.match(new RegExp(`^!\\[([^\\]\\n]*)\\]\\((${SAFE_URL})\\)$`));
+        if (image) {
+            return (
+                <img
+                    key={key}
+                    src={image[2]}
+                    alt={image[1]}
+                    loading="lazy"
+                    className="my-2 block w-full rounded-xl border border-zinc-200 bg-white object-contain"
+                />
+            );
+        }
+
+        const link = token.match(new RegExp(`^\\[([^\\]\\n]+)\\]\\((${SAFE_URL})\\)$`));
         if (link) {
             return (
                 <a
@@ -237,7 +255,9 @@ function renderInline(value, keyPrefix) {
 
 /**
  * Render markdown subset yang aman menjadi elemen React.
- * Blok: paragraf (baris kosong), daftar "- ", daftar bernomor "1. ".
+ * Blok: paragraf (baris kosong), daftar "- ", daftar bernomor "1. ",
+ * subjudul "## "/"### ", kutipan "> ", gambar tersendiri "![ket](url)".
+ * Inline: **tebal**, *miring*, [label](url), ![ket](url).
  */
 function RichText({ body, mode }) {
     const blocks = text(body)
@@ -277,6 +297,73 @@ function RichText({ body, mode }) {
                                 </li>
                             ))}
                         </ol>
+                    );
+                }
+
+                // Subjudul: ## Judul atau ### Judul
+                if (lines.length === 1) {
+                    const heading = lines[0].match(/^(#{2,3})\s+(.*)$/);
+                    if (heading) {
+                        const HeadingTag = heading[1].length === 2 ? 'h4' : 'h5';
+                        return (
+                            <HeadingTag
+                                key={key}
+                                className={`font-display font-bold ${
+                                    mode === 'live_proyektor'
+                                        ? 'pt-2 text-3xl text-zinc-100'
+                                        : heading[1].length === 2
+                                          ? 'pt-1 text-[15px] text-zinc-800'
+                                          : 'text-sm text-zinc-800'
+                                }`}
+                            >
+                                {renderInline(heading[2], key)}
+                            </HeadingTag>
+                        );
+                    }
+
+                    // Gambar tersendiri di antara paragraf: ![keterangan](url)
+                    const figure = lines[0].match(new RegExp(`^!\\[([^\\]]*)\\]\\((${SAFE_URL})\\)$`));
+                    if (figure) {
+                        return (
+                            <figure key={key}>
+                                <img
+                                    src={figure[2]}
+                                    alt={figure[1]}
+                                    loading="lazy"
+                                    className="w-full rounded-xl border border-zinc-200 bg-white object-contain"
+                                />
+                                {figure[1] && (
+                                    <figcaption
+                                        className={`mt-1.5 text-center text-xs ${
+                                            mode === 'live_proyektor' ? 'text-zinc-400' : 'text-zinc-500'
+                                        }`}
+                                    >
+                                        {figure[1]}
+                                    </figcaption>
+                                )}
+                            </figure>
+                        );
+                    }
+                }
+
+                // Kutipan: semua baris diawali "> "
+                if (lines.length > 0 && lines.every((line) => line.startsWith('> '))) {
+                    return (
+                        <blockquote
+                            key={key}
+                            className={`rounded-r-lg border-l-4 px-4 py-2 ${
+                                mode === 'live_proyektor'
+                                    ? 'border-emerald-400 bg-white/5 text-2xl leading-relaxed text-zinc-200'
+                                    : 'border-emerald-300 bg-emerald-50/60 text-sm italic leading-6 text-zinc-600'
+                            }`}
+                        >
+                            {lines.map((line, lineIndex) => (
+                                <span key={`${key}-${lineIndex}`}>
+                                    {lineIndex > 0 && <br />}
+                                    {renderInline(line.slice(2), `${key}-${lineIndex}`)}
+                                </span>
+                            ))}
+                        </blockquote>
                     );
                 }
 
@@ -2864,7 +2951,10 @@ export default function DynamicBlockRenderer({
                     <Heading mode={safeMode} kicker={BLOCK_LABELS[type]}>
                         {data.title}
                     </Heading>
-                    <BodyText mode={safeMode}>{data.body}</BodyText>
+                    {/* Isi Materi Teks dirender dengan format ringan yang sama
+                        seperti Teks Kaya (tebal/miring/daftar/subjudul/kutipan/
+                        gambar) agar toolbar di Studio berlaku untuk keduanya. */}
+                    <RichText body={data.body} mode={safeMode} />
                 </>
             );
             break;

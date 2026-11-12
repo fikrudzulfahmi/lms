@@ -143,6 +143,35 @@ class StudioPhaseOneBlocksTest extends TestCase
         ]);
     }
 
+    public function test_richtext_and_teks_accept_formatting_and_inline_images(): void
+    {
+        // Toolbar format + sisip gambar di Studio menulis markdown ringan
+        // ke body; server harus menerimanya apa adanya untuk kedua blok teks.
+        $body = "## Komponen Starter\n\nStarter terdiri dari **motor starter** dan *solenoid*.\n\n"
+            ."![Diagram sistem starter](https://lms.example/storage/modules/x/starter.png)\n\n"
+            ."> Perhatian: lepaskan terminal negatif aki sebelum membongkar.\n\n"
+            ."1. Periksa aki\n2. Periksa relay";
+
+        foreach (['materi_richtext', 'materi_teks'] as $type) {
+            $response = $this->actingAs($this->teacher)->postJson($this->blocksUrl(), [
+                'block_type' => $type,
+                'points' => 0,
+                'content' => ['title' => 'Sistem Starter', 'body' => $body],
+            ]);
+
+            $response->assertCreated();
+            $this->assertSame($body, $response->json('block.content.body'));
+        }
+
+        // Unggah gambar untuk disisipkan: endpoint aset menerima berkas gambar.
+        $upload = $this->actingAs($this->teacher)->postJson(
+            '/teacher/modules/'.$this->module->id.'/blocks/upload',
+            ['file' => \Illuminate\Http\UploadedFile::fake()->image('diagram-starter.png', 640, 480)],
+        );
+        $upload->assertOk()->assertJsonStructure(['url', 'name', 'size']);
+        $this->assertStringEndsWith('.png', $upload->json('url'));
+    }
+
     public function test_validation_rejects_incomplete_phase_one_blocks(): void
     {
         $cases = [

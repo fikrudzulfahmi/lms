@@ -113,6 +113,7 @@ export default function BlockEditor({
     const [uploading, setUploading] = useState(false);
     const [uploadError, setUploadError] = useState(null);
     const richTextRef = useRef(null);
+    const richImageInputRef = useRef(null);
 
     async function uploadAsset(file) {
         const form = new FormData();
@@ -201,6 +202,80 @@ export default function BlockEditor({
         });
     }
 
+    /** Awali setiap baris terseleksi dengan awalan (mis. "## " atau "> "). */
+    function prefixRichLines(prefix) {
+        const element = richTextRef.current;
+        const value = content.body ?? '';
+
+        if (!element || element.selectionStart === element.selectionEnd) {
+            setContent({ body: `${value}${value && !value.endsWith('\n') ? '\n' : ''}${prefix}` });
+            return;
+        }
+
+        const start = element.selectionStart;
+        const end = element.selectionEnd;
+        const selected = value.slice(start, end);
+        const prefixed = selected
+            .split('\n')
+            .map((line) => (line.trim() ? `${prefix}${line}` : line))
+            .join('\n');
+        setContent({ body: value.slice(0, start) + prefixed + value.slice(end) });
+    }
+
+    function insertRichNumberedList() {
+        const element = richTextRef.current;
+        const value = content.body ?? '';
+
+        if (!element || element.selectionStart === element.selectionEnd) {
+            setContent({ body: `${value}${value && !value.endsWith('\n') ? '\n' : ''}1. Poin baru` });
+            return;
+        }
+
+        const start = element.selectionStart;
+        const end = element.selectionEnd;
+        const selected = value.slice(start, end);
+        let counter = 0;
+        const listed = selected
+            .split('\n')
+            .map((line) => (line.trim() ? `${++counter}. ${line.replace(/^\d+\.\s*/, '')}` : line))
+            .join('\n');
+        setContent({ body: value.slice(0, start) + listed + value.slice(end) });
+    }
+
+    /** Unggah gambar lalu sisipkan ![nama](url) sebagai paragraf sendiri di posisi kursor. */
+    async function handleRichImageUpload(event) {
+        const file = event.target.files?.[0];
+        event.target.value = '';
+        if (!file) return;
+
+        setUploading(true);
+        setUploadError(null);
+
+        try {
+            const payload = await uploadAsset(file);
+            const element = richTextRef.current;
+            const value = content.body ?? '';
+            const alt = (payload.name ?? 'Gambar').replace(/\.[^.]+$/, '');
+            const snippet = `![${alt}](${payload.url})`;
+
+            if (!element) {
+                setContent({ body: `${value}${value ? '\n\n' : ''}${snippet}` });
+                return;
+            }
+
+            const cursor = element.selectionStart ?? value.length;
+            const before = value.slice(0, cursor);
+            const after = value.slice(cursor);
+            const lead = before === '' || before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n';
+            const trail = after === '' || after.startsWith('\n\n') ? '' : after.startsWith('\n') ? '\n' : '\n\n';
+            setContent({ body: `${before}${lead}${snippet}${trail}${after}` });
+        } catch (error) {
+            setUploadError(error.message || 'Gagal mengunggah gambar.');
+        } finally {
+            setUploading(false);
+        }
+    }
+
     function insertRichList() {
         const element = richTextRef.current;
         const value = content.body ?? '';
@@ -236,6 +311,47 @@ export default function BlockEditor({
         } finally {
             setUploading(false);
         }
+    }
+
+    /** Toolbar format untuk textarea materi (Teks Kaya & Materi Teks). */
+    function renderRichToolbar() {
+        return (
+            <div className="mb-1.5 flex flex-wrap gap-1.5">
+                {[
+                    { label: 'B Tebal', action: () => wrapRichSelection('**') },
+                    { label: 'I Miring', action: () => wrapRichSelection('*') },
+                    { label: 'H Subjudul', action: () => prefixRichLines('## ') },
+                    { label: '• Daftar', action: insertRichList },
+                    { label: '1. Daftar Nomor', action: insertRichNumberedList },
+                    { label: '❝ Kutipan', action: () => prefixRichLines('> ') },
+                    { label: '🔗 Tautan', action: () => wrapRichSelection('[', '](https://)') },
+                ].map((tool) => (
+                    <button
+                        key={tool.label}
+                        type="button"
+                        onClick={tool.action}
+                        className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium text-zinc-600 transition-colors hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
+                    >
+                        {tool.label}
+                    </button>
+                ))}
+                <button
+                    type="button"
+                    disabled={uploading}
+                    onClick={() => richImageInputRef.current?.click()}
+                    className="rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                    {uploading ? 'Mengunggah…' : '🖼 Sisipkan Gambar'}
+                </button>
+                <input
+                    ref={richImageInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/gif,image/webp"
+                    className="hidden"
+                    onChange={handleRichImageUpload}
+                />
+            </div>
+        );
     }
 
     const hotspotBoxRef = useRef(null);
@@ -391,25 +507,9 @@ export default function BlockEditor({
                         </Field>
                         <Field
                             label="Isi materi"
-                            hint="Format ringan: **tebal**, *miring*, baris diawali - untuk daftar, 1. untuk daftar bernomor, [label](https://...) untuk tautan. Baris kosong = paragraf baru."
+                            hint="Pakai tombol format di bawah: tebal, miring, subjudul, daftar, kutipan, tautan, dan sisipkan gambar di antara paragraf. Baris kosong = paragraf baru."
                         >
-                            <div className="mb-1.5 flex flex-wrap gap-1.5">
-                                {[
-                                    { label: 'B Tebal', action: () => wrapRichSelection('**') },
-                                    { label: 'I Miring', action: () => wrapRichSelection('*') },
-                                    { label: '• Daftar', action: insertRichList },
-                                    { label: '🔗 Tautan', action: () => wrapRichSelection('[', '](https://)') },
-                                ].map((tool) => (
-                                    <button
-                                        key={tool.label}
-                                        type="button"
-                                        onClick={tool.action}
-                                        className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium text-zinc-600 transition-colors hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
-                                    >
-                                        {tool.label}
-                                    </button>
-                                ))}
-                            </div>
+                            {renderRichToolbar()}
                             <textarea
                                 ref={richTextRef}
                                 rows={10}
@@ -610,8 +710,13 @@ export default function BlockEditor({
                                 placeholder="Contoh: Gejala Kerusakan Sensor PGM-FI"
                             />
                         </Field>
-                        <Field label="Isi materi" hint="Baris baru akan dipertahankan saat dirender.">
+                        <Field
+                            label="Isi materi"
+                            hint="Bisa diformat dengan tombol di bawah dan disisipi gambar di antara paragraf. Baris kosong = paragraf baru."
+                        >
+                            {renderRichToolbar()}
                             <textarea
+                                ref={richTextRef}
                                 rows={7}
                                 value={content.body ?? ''}
                                 onChange={(event) => setContent({ body: event.target.value })}
