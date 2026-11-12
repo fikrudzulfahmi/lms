@@ -302,6 +302,84 @@ class StudentPracticeTest extends TestCase
         )->assertOk()->assertJsonPath('correct', true);
     }
 
+    public function test_exam_mode_scrubs_keys_hides_results_and_finish_enters_gradebook(): void
+    {
+        $this->module->update(['exam_mode' => true]);
+
+        // Kunci jawaban tidak terkirim; status asesmen terlihat di props.
+        $response = $this->actingAs($this->student)->get($this->practiceUrl());
+        $response->assertOk();
+        $response->assertInertia(fn (Assert $page) => $page
+            ->component('Student/Practice/Show')
+            ->where('module.exam_mode', true)
+            ->where('blocks.2.content.options.0.text', 'Mengukur tekanan manifold')
+            ->missing('blocks.2.content.options.0.correct')
+            ->missing('blocks.2.content.explanation')
+        );
+
+        // Jawaban tersimpan, tetapi respons tidak membocorkan benar/salah.
+        $answer = $this->actingAs($this->student)->postJson(
+            route('student.practice.answer', $this->module),
+            ['block_id' => $this->mcq->id, 'answer' => ['option_index' => 0]],
+        );
+        $answer->assertOk();
+        $answer->assertJsonPath('saved', true);
+        $this->assertArrayNotHasKey('correct', $answer->json());
+        $this->assertArrayNotHasKey('earned_points', $answer->json());
+
+        // Selesaikan asesmen → jawaban menjadi StudentResponse di buku nilai.
+        $finish = $this->actingAs($this->student)->postJson(route('student.practice.finish', $this->module));
+        $finish->assertOk();
+        $finish->assertJsonPath('graded_answers', 1);
+
+        $this->assertDatabaseHas('student_responses', [
+            'module_block_id' => $this->mcq->id,
+            'student_id' => $this->student->id,
+            'is_graded' => true,
+        ]);
+
+        $grade = \App\Models\ModuleGrade::query()
+            ->where('module_id', $this->module->id)
+            ->where('student_id', $this->student->id)
+            ->first();
+        $this->assertNotNull($grade);
+        $this->assertGreaterThan(0, (float) $grade->final_score);
+
+        // Nilai disembunyikan dari laporan siswa sampai guru mengumumkan.
+        $report = app(\App\Services\GradeCalculationService::class)->studentReport($this->student);
+        $assessment = collect($report['subjects'])
+            ->flatMap(fn ($subject) => $subject['assessments'])
+            ->firstWhere('module_id', $this->module->id);
+        $this->assertNotNull($assessment);
+        $this->assertNull($assessment['score']);
+        $this->assertTrue($assessment['results_pending']);
+
+        $this->module->update(['results_released' => true]);
+        $released = collect(app(\App\Services\GradeCalculationService::class)->studentReport($this->student)['subjects'])
+            ->flatMap(fn ($subject) => $subject['assessments'])
+            ->firstWhere('module_id', $this->module->id);
+        $this->assertNotNull($released['score']);
+        $this->assertFalse($released['results_pending']);
+    }
+
+    public function test_exam_mode_allows_jumping_despite_sequential_lock(): void
+    {
+        $this->module->update(['exam_mode' => true, 'sequential_lock' => true]);
+
+        // Di mode asesmen siswa boleh langsung menjawab soal terakhir.
+        $this->actingAs($this->student)->postJson(
+            route('student.practice.answer', $this->module),
+            ['block_id' => $this->mcq->id, 'answer' => ['option_index' => 1]],
+        )->assertOk()->assertJsonPath('saved', true);
+    }
+
+    public function test_finish_rejected_when_not_exam_mode(): void
+    {
+        $this->actingAs($this->student)->postJson(
+            route('student.practice.finish', $this->module),
+        )->assertUnprocessable();
+    }
+
     public function test_polling_block_can_be_created_and_is_ungraded(): void
     {
         $response = $this->actingAs($this->teacher)->postJson(

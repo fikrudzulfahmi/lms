@@ -10,6 +10,7 @@ const icons = {
 const navItems = [
     { label: 'Modul Ajar', href: '/teacher/modules', exact: false, icon: 'modules' },
     { label: 'Bank TP', href: '/teacher/objectives', exact: false, icon: 'objectives' },
+    { label: 'Bank Soal', href: '/teacher/question-bank', exact: false, icon: 'gradebook' },
     { label: 'Buku Nilai', href: '/teacher/gradebook', exact: false, icon: 'gradebook' },
 ];
 

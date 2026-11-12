@@ -19,6 +19,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'status',
     'allow_practice',
     'sequential_lock',
+    'exam_mode',
+    'results_released',
     'settings',
     'ai_status',
     'ai_error',
@@ -77,6 +79,8 @@ class LearningModule extends Model
             'max_attempts' => 'integer',
             'allow_practice' => 'boolean',
             'sequential_lock' => 'boolean',
+            'exam_mode' => 'boolean',
+            'results_released' => 'boolean',
             'settings' => 'array',
             'ai_generated_at' => 'datetime',
         ];

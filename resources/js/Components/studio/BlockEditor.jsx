@@ -96,6 +96,7 @@ export default function BlockEditor({
     onChange,
     onDelete,
     onDuplicate,
+    onSaveToBank,
     onMove,
     onSlidesImported,
     uploadUrl,
@@ -327,6 +328,11 @@ export default function BlockEditor({
                     {onDuplicate && (
                         <IconButton label="Duplikat blok" onClick={onDuplicate}>
                             Duplikat
+                        </IconButton>
+                    )}
+                    {onSaveToBank && (type.startsWith('soal_') || type === 'polling') && (
+                        <IconButton label="Simpan soal ini ke Bank Soal untuk dipakai ulang" onClick={onSaveToBank}>
+                            Ke Bank Soal
                         </IconButton>
                     )}
                     <IconButton label="Hapus blok" onClick={onDelete} danger>

@@ -136,6 +136,20 @@ class LiveSessionController extends Controller
 
         $session->update(['status' => LiveSession::STATUS_ENDED]);
 
+        // Esai yang belum dinilai otomatis dikirim ke penilaian AI saat sesi
+        // berakhir, agar status siswa tidak menggantung "menunggu penilaian".
+        $essayIds = \App\Models\StudentResponse::query()
+            ->where('is_graded', false)
+            ->whereHas('block', fn ($query) => $query
+                ->where('module_id', $session->module_id)
+                ->where('block_type', ModuleBlock::BLOCK_SOAL_ESSAY_AI))
+            ->pluck('id')
+            ->all();
+
+        if ($essayIds !== []) {
+            \App\Jobs\GradeStudentEssaysJob::dispatch($essayIds);
+        }
+
         // Kunci hasil: hitung ulang rekap nilai modul dari seluruh jawaban siswa.
         $graded = $this->grades->recalculateModule($session->module);
 

@@ -130,6 +130,8 @@ class ModuleController
                 'status' => LearningModule::STATUS_DRAFT,
                 'allow_practice' => $module->allow_practice,
                 'sequential_lock' => $module->sequential_lock,
+                'exam_mode' => $module->exam_mode,
+                'results_released' => $module->results_released,
                 'settings' => $module->settings,
             ]);
 
@@ -196,6 +198,8 @@ class ModuleController
                 'status' => $module->status,
                 'allow_practice' => (bool) $module->allow_practice,
                 'sequential_lock' => (bool) $module->sequential_lock,
+                'exam_mode' => (bool) $module->exam_mode,
+                'results_released' => (bool) $module->results_released,
                 'assessment_type' => $module->assessment_type,
                 'kktp_score' => $module->kktp_score,
                 'max_attempts' => $module->max_attempts,
@@ -224,12 +228,16 @@ class ModuleController
                 'blocks' => route('teacher.modules.blocks.store', $module),
                 'blocks_import' => route('teacher.modules.blocks.import', $module),
                 'blocks_import_template' => route('teacher.modules.blocks.import.template', $module),
+                'bank' => route('teacher.bank.index'),
+                'bank_store' => route('teacher.bank.store'),
+                'blocks_from_bank' => route('teacher.modules.blocks.from-bank', $module),
                 'upload' => route('teacher.modules.blocks.upload', $module),
                 'reorder' => route('teacher.modules.blocks.reorder', $module),
                 'slides' => route('teacher.modules.slides.store', $module),
                 'ai_generate' => route('teacher.modules.ai.generate', $module),
                 'ai_status' => route('teacher.modules.ai.status', $module),
                 'submissions' => route('teacher.modules.submissions.index', $module),
+                'work' => route('teacher.modules.work', $module),
             ],
         ]);
     }

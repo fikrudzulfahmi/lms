@@ -224,6 +224,13 @@ export default function Index({
                                         <td className="px-4 py-3 text-xs text-zinc-500">{formatDate(module.updated_at)}</td>
                                         <td className="px-4 py-3 text-right">
                                             <div className="flex items-center justify-end gap-1.5">
+                                                <Link
+                                                    href={`/teacher/modules/${module.id}/work`}
+                                                    className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:border-emerald-300 hover:text-emerald-700 hover:bg-emerald-50"
+                                                    title="Lihat pekerjaan siswa pada modul ini"
+                                                >
+                                                    Pekerjaan Siswa
+                                                </Link>
                                                 <button
                                                     type="button"
                                                     onClick={() => openDuplicate(module)}

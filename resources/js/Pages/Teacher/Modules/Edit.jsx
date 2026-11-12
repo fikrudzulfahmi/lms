@@ -206,8 +206,14 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
     const [status, setStatus] = useState(module.status);
     const [allowPractice, setAllowPractice] = useState(module.allow_practice ?? true);
     const [sequentialLock, setSequentialLock] = useState(module.sequential_lock ?? false);
+    const [examMode, setExamMode] = useState(module.exam_mode ?? false);
+    const [resultsReleased, setResultsReleased] = useState(module.results_released ?? false);
     const [importing, setImporting] = useState(false);
     const [importNotice, setImportNotice] = useState(null);
+    const [bankOpen, setBankOpen] = useState(false);
+    const [bankItems, setBankItems] = useState([]);
+    const [bankLoading, setBankLoading] = useState(false);
+    const [bankBusyId, setBankBusyId] = useState(null);
     const [adding, setAdding] = useState(null);
     const [draggingId, setDraggingId] = useState(null);
     const [aiOpen, setAiOpen] = useState(false);
@@ -469,6 +475,48 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
         }
     }
 
+    async function saveBlockToBank(block) {
+        try {
+            await apiRequest(urls.bank_store, 'POST', { block_id: block.id });
+            setAiError(null);
+            setAiNotice('Soal disimpan ke Bank Soal — bisa dipakai ulang lewat tombol “Ambil dari Bank Soal”.');
+            markSaved();
+        } catch (error) {
+            markError(error);
+        }
+    }
+
+    async function openBank() {
+        setBankOpen(true);
+        setBankLoading(true);
+
+        try {
+            const payload = await apiRequest(urls.bank, 'GET');
+            setBankItems(payload.items ?? []);
+        } catch (error) {
+            setBankItems([]);
+            markError(error);
+        } finally {
+            setBankLoading(false);
+        }
+    }
+
+    async function addFromBank(item) {
+        setBankBusyId(item.id);
+
+        try {
+            const payload = await apiRequest(urls.blocks_from_bank, 'POST', { item_id: item.id });
+            setBlocks((current) => [...current, payload.block]);
+            setSelectedId(payload.block.id);
+            markSaved(payload.saved_at);
+            setBankOpen(false);
+        } catch (error) {
+            markError(error);
+        } finally {
+            setBankBusyId(null);
+        }
+    }
+
     async function handleImportFile(event) {
         const file = event.target.files?.[0];
         event.target.value = '';
@@ -726,6 +774,36 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
         }
     }
 
+    async function toggleExamMode() {
+        const previous = examMode;
+        const next = !examMode;
+        setExamMode(next);
+        setSaveState('saving');
+
+        try {
+            const payload = await apiRequest(urls.update, 'PATCH', { exam_mode: next });
+            markSaved(payload.saved_at);
+        } catch (error) {
+            setExamMode(previous);
+            markError(error);
+        }
+    }
+
+    async function toggleResultsReleased() {
+        const previous = resultsReleased;
+        const next = !resultsReleased;
+        setResultsReleased(next);
+        setSaveState('saving');
+
+        try {
+            const payload = await apiRequest(urls.update, 'PATCH', { results_released: next });
+            markSaved(payload.saved_at);
+        } catch (error) {
+            setResultsReleased(previous);
+            markError(error);
+        }
+    }
+
     const stateBadge = {
         saved: { dot: 'bg-emerald-500', text: 'Tersimpan' },
         saving: { dot: 'bg-amber-400', text: 'Menyimpan...' },
@@ -791,6 +869,16 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
                             title="Lihat dan nilai pengumpulan blok Tugas Unggah pada modul ini"
                         >
                             Pengumpulan Tugas
+                        </Link>
+                    )}
+
+                    {urls.work && (
+                        <Link
+                            href={urls.work}
+                            className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
+                            title="Lihat semua pekerjaan siswa pada modul ini (live, mandiri, tugas) dan nilai esai yang menunggu"
+                        >
+                            Pekerjaan Siswa
                         </Link>
                     )}
 
@@ -903,6 +991,60 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
                         </span>
                         Kunci Berurutan {sequentialLock ? 'Aktif' : 'Nonaktif'}
                     </button>
+
+                    <button
+                        type="button"
+                        onClick={toggleExamMode}
+                        role="switch"
+                        aria-checked={examMode}
+                        title="Mode asesmen: siswa mengerjakan per soal dengan panel navigasi, boleh melompat antar soal, dan tidak melihat benar/salah maupun nilai"
+                        className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium ${
+                            examMode
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50'
+                        }`}
+                    >
+                        <span
+                            className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${
+                                examMode ? 'bg-emerald-500' : 'bg-zinc-300'
+                            }`}
+                        >
+                            <span
+                                className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${
+                                    examMode ? 'left-3.5' : 'left-0.5'
+                                }`}
+                            />
+                        </span>
+                        Mode Asesmen {examMode ? 'Aktif' : 'Nonaktif'}
+                    </button>
+
+                    {examMode && (
+                        <button
+                            type="button"
+                            onClick={toggleResultsReleased}
+                            role="switch"
+                            aria-checked={resultsReleased}
+                            title="Setelah diumumkan, nilai asesmen modul ini tampil di halaman Nilai siswa"
+                            className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium ${
+                                resultsReleased
+                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                    : 'border-amber-200 bg-amber-50 text-amber-700'
+                            }`}
+                        >
+                            <span
+                                className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${
+                                    resultsReleased ? 'bg-emerald-500' : 'bg-amber-400'
+                                }`}
+                            >
+                                <span
+                                    className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${
+                                        resultsReleased ? 'left-3.5' : 'left-0.5'
+                                    }`}
+                                />
+                            </span>
+                            Hasil {resultsReleased ? 'Diumumkan' : 'Belum Diumumkan'}
+                        </button>
+                    )}
 
                     <span className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 font-mono text-xs text-zinc-500">
                         {blocks.length} blok
@@ -1086,6 +1228,23 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
                                 </p>
                             )}
                         </div>
+
+                        <div className="mt-3 border-t border-zinc-100 pt-3">
+                            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                                Bank Soal
+                            </h3>
+                            <p className="mb-2 text-[11px] leading-relaxed text-zinc-500">
+                                Ambil soal simpananmu untuk dipakai di modul ini. Simpan soal baru lewat
+                                tombol “Ke Bank Soal” pada blok soal.
+                            </p>
+                            <button
+                                type="button"
+                                onClick={openBank}
+                                className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
+                            >
+                                Ambil dari Bank Soal
+                            </button>
+                        </div>
                     </div>
                 </aside>
 
@@ -1122,6 +1281,7 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
                                     onChange={(patch) => updateBlock(block.id, patch)}
                                     onDelete={() => deleteBlock(block.id)}
                                     onDuplicate={() => duplicateBlock(block)}
+                                    onSaveToBank={() => saveBlockToBank(block)}
                                     onMove={moveBlock}
                                     onSlidesImported={importSlidesToBlocks}
                                     uploadUrl={urls.slides}
@@ -1214,6 +1374,62 @@ export default function Edit({ module, blocks: initialBlocks = [], block_types =
                     </div>
                 </aside>
             </div>
+
+            <Modal
+                open={bankOpen}
+                onClose={() => setBankOpen(false)}
+                title="Ambil dari Bank Soal"
+                subtitle="Soal yang dipilih disalin sebagai blok baru di akhir modul ini."
+                wide
+                footer={
+                    <Button variant="outline" onClick={() => setBankOpen(false)}>
+                        Tutup
+                    </Button>
+                }
+            >
+                {bankLoading ? (
+                    <p className="py-6 text-center text-sm text-zinc-500">Memuat bank soal...</p>
+                ) : bankItems.length === 0 ? (
+                    <p className="py-6 text-center text-sm text-zinc-500">
+                        Bank Soal masih kosong. Simpan soal lewat tombol “Ke Bank Soal” pada blok soal.
+                    </p>
+                ) : (
+                    <div className="max-h-96 space-y-2 overflow-y-auto">
+                        {bankItems.map((item) => (
+                            <div
+                                key={item.id}
+                                className="flex items-start gap-3 rounded-xl border border-zinc-200 px-3 py-2.5"
+                            >
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                                            {item.label}
+                                        </span>
+                                        <span className="font-mono text-[11px] text-zinc-400">
+                                            {item.points} poin
+                                        </span>
+                                        {item.topic && (
+                                            <span className="truncate text-[11px] text-zinc-400">
+                                                · {item.topic}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-sm text-zinc-700">
+                                        {item.snippet}
+                                    </p>
+                                </div>
+                                <Button
+                                    size="sm"
+                                    disabled={bankBusyId !== null}
+                                    onClick={() => addFromBank(item)}
+                                >
+                                    {bankBusyId === item.id ? 'Menambah...' : 'Tambah'}
+                                </Button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </Modal>
 
             <Modal
                 open={aiOpen}

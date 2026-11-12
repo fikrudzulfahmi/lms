@@ -8,8 +8,10 @@ use App\Models\ClassroomStudent;
 use App\Models\LearningModule;
 use App\Models\ModuleBlock;
 use App\Models\ModuleProgress;
+use App\Models\StudentResponse;
 use App\Models\Submission;
 use App\Models\TeachingAssignment;
+use App\Services\GradeCalculationService;
 use App\Services\LiveSessionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,7 +27,10 @@ use Inertia\Response;
  */
 class PracticeController extends Controller
 {
-    public function __construct(private readonly LiveSessionService $sessions) {}
+    public function __construct(
+        private readonly LiveSessionService $sessions,
+        private readonly GradeCalculationService $grades,
+    ) {}
 
     public function show(Request $request, LearningModule $module): Response
     {
@@ -50,8 +55,17 @@ class PracticeController extends Controller
             ->orderBy('order_index')
             ->orderBy('created_at')
             ->get()
-            ->map(function (ModuleBlock $block) use ($lockedIds) {
+            ->map(function (ModuleBlock $block) use ($lockedIds, $module) {
                 $locked = in_array($block->id, $lockedIds, true);
+
+                // Mode asesmen: kunci jawaban TIDAK boleh sampai ke siswa —
+                // konten dibersihkan seperti payload kelas live. Mode latihan
+                // biasa: konten dikirim apa adanya (termasuk kunci) agar blok
+                // bisa memeriksa jawaban secara lokal. ai_rubric TIDAK ikut
+                // di kedua mode — itu rahasia penilaian AI guru.
+                $content = $module->exam_mode
+                    ? $this->sessions->serializeBlock($block, true)['content']
+                    : $block->content;
 
                 return [
                     'id' => $block->id,
@@ -59,10 +73,7 @@ class PracticeController extends Controller
                     'block_type' => $block->block_type,
                     'points' => $block->points,
                     'locked' => $locked,
-                    // Mode latihan: konten dikirim apa adanya (termasuk kunci)
-                    // agar blok bisa memeriksa jawaban secara lokal. ai_rubric
-                    // TIDAK ikut — itu rahasia penilaian AI guru.
-                    'content' => $locked ? [] : $block->content,
+                    'content' => $locked ? [] : $content,
                 ];
             })
             ->values();
@@ -85,6 +96,8 @@ class PracticeController extends Controller
                 'teacher' => $module->teachingAssignment?->teacher?->name,
                 'assessment_type' => $module->assessment_type,
                 'sequential_lock' => (bool) $module->sequential_lock,
+                'exam_mode' => (bool) $module->exam_mode,
+                'results_released' => (bool) $module->results_released,
             ],
             'blocks' => $blocks,
             'progress' => $this->progressPayload($module, $progress),
@@ -93,6 +106,7 @@ class PracticeController extends Controller
                 'progress' => route('student.practice.progress', $module),
                 'answer' => route('student.practice.answer', $module),
                 'submission' => route('student.practice.submission', $module),
+                'finish' => route('student.practice.finish', $module),
                 'upload' => route('student.uploads.store'),
                 'home' => route('student.home'),
             ],
@@ -195,6 +209,17 @@ class PracticeController extends Controller
 
         $payload = $this->progressPayload($module, $progress->fresh());
 
+        // Mode asesmen: siswa tidak boleh tahu benar/salah atau poinnya —
+        // hanya status tersimpan dan progres penyelesaian.
+        if ($module->exam_mode) {
+            return response()->json([
+                'saved' => true,
+                'completed_blocks' => $payload['completed_blocks'],
+                'percent' => $payload['percent'],
+                'completed_at' => $payload['completed_at'],
+            ]);
+        }
+
         return response()->json([
             'correct' => $grade['correct'],
             'earned_points' => $grade['earned_points'],
@@ -202,6 +227,69 @@ class PracticeController extends Controller
             'completed_blocks' => $payload['completed_blocks'],
             'percent' => $payload['percent'],
             'completed_at' => $payload['completed_at'],
+        ]);
+    }
+
+    /**
+     * Selesaikan mode asesmen: jawaban latihan yang tersimpan diteruskan
+     * menjadi StudentResponse agar masuk buku nilai. Esai diteruskan
+     * sebagai belum dinilai (dinilai AI/manual oleh guru di Pekerjaan
+     * Siswa). Tugas unggah tidak ikut — nilainya dari penilaian rubrik.
+     */
+    public function finish(Request $request, LearningModule $module): JsonResponse
+    {
+        $this->accessibleModule($request, $module);
+
+        if (! $module->exam_mode) {
+            throw ValidationException::withMessages([
+                'module' => 'Modul ini tidak dalam mode asesmen.',
+            ]);
+        }
+
+        $progress = $this->progressFor($request, $module);
+        $answers = (array) ($progress?->answers ?? []);
+
+        $graded = 0;
+        $pending = 0;
+
+        $blocks = $module->blocks()
+            ->whereNotIn('block_type', [
+                ModuleBlock::BLOCK_SECTION_HEADING,
+                ModuleBlock::BLOCK_TUGAS_UPLOAD,
+                ModuleBlock::BLOCK_PRAKTIK_CHECKLIST,
+            ])
+            ->get();
+
+        foreach ($blocks as $block) {
+            $entry = $answers[$block->id] ?? null;
+
+            if ($entry === null || ! isset($entry['payload'])) {
+                continue;
+            }
+
+            $isGraded = (bool) ($entry['is_graded'] ?? false);
+
+            StudentResponse::query()->updateOrCreate(
+                [
+                    'module_block_id' => $block->id,
+                    'student_id' => $request->user()->id,
+                ],
+                [
+                    'answer_payload' => $entry['payload'],
+                    'earned_points' => $isGraded ? (float) ($entry['earned_points'] ?? 0) : 0,
+                    'is_graded' => $isGraded,
+                ],
+            );
+
+            $isGraded ? $graded++ : $pending++;
+        }
+
+        $this->grades->recalculateModule($module);
+
+        return response()->json([
+            'ok' => true,
+            'graded_answers' => $graded,
+            'pending_answers' => $pending,
         ]);
     }
 
@@ -385,7 +473,9 @@ class PracticeController extends Controller
      */
     private function lockedBlockIds(LearningModule $module, array $completedIds): array
     {
-        if (! $module->sequential_lock) {
+        // Mode asesmen justru mengizinkan siswa melompat antar soal, jadi
+        // kunci berurutan tidak berlaku di sana.
+        if (! $module->sequential_lock || $module->exam_mode) {
             return [];
         }
 
@@ -485,9 +575,20 @@ class PracticeController extends Controller
         ));
         $total = count($eligible);
 
+        $answers = (array) ($progress?->answers ?? []);
+
+        // Mode asesmen: jawaban siswa sendiri boleh dimuat kembali, tetapi
+        // status benar/salah dan poinnya disembunyikan.
+        if ($module->exam_mode) {
+            $answers = array_map(fn ($entry) => [
+                'payload' => is_array($entry) ? ($entry['payload'] ?? null) : null,
+                'answered_at' => is_array($entry) ? ($entry['answered_at'] ?? null) : null,
+            ], $answers);
+        }
+
         return [
             'completed_blocks' => $completed,
-            'answers' => $progress?->answers ?? [],
+            'answers' => $answers,
             'percent' => $total > 0 ? (int) round(count($completed) / $total * 100) : 0,
             'completed_at' => $progress?->completed_at?->toIso8601String(),
         ];
