@@ -16,6 +16,7 @@ use App\Http\Controllers\Teacher\ModuleBlockController;
 use App\Http\Controllers\Teacher\ModuleController;
 use App\Http\Controllers\Teacher\ModuleSlideController;
 use App\Http\Controllers\Teacher\ObjectiveController;
+use App\Http\Controllers\Teacher\QuestionBankController;
 use App\Http\Controllers\Teacher\StudentWorkController;
 use App\Http\Controllers\Teacher\SubmissionController;
 use Illuminate\Http\Request;
@@ -116,6 +117,12 @@ Route::middleware('auth')->group(function () {
         Route::patch('/modules/{module}/blocks/{block}', [ModuleBlockController::class, 'update'])->name('modules.blocks.update');
         Route::delete('/modules/{module}/blocks/{block}', [ModuleBlockController::class, 'destroy'])->name('modules.blocks.destroy');
 
+        // Bank Soal guru
+        Route::get('/question-bank', [QuestionBankController::class, 'index'])->name('bank.index');
+        Route::post('/question-bank', [QuestionBankController::class, 'store'])->name('bank.store');
+        Route::delete('/question-bank/{item}', [QuestionBankController::class, 'destroy'])->name('bank.destroy');
+        Route::post('/modules/{module}/blocks/from-bank', [QuestionBankController::class, 'addToModule'])->name('modules.blocks.from-bank');
+
         // Bank TP (guru hanya mapel yang diampu)
         Route::get('/objectives', [ObjectiveController::class, 'index'])->name('objectives.index');
         Route::post('/objectives', [ObjectiveController::class, 'store'])->name('objectives.store');
@@ -153,6 +160,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/modules/{module}/practice/progress', [PracticeController::class, 'markProgress'])->name('practice.progress');
         Route::post('/modules/{module}/practice/answers', [PracticeController::class, 'answer'])->name('practice.answer');
         Route::post('/modules/{module}/practice/submissions', [PracticeController::class, 'submitAssignment'])->name('practice.submission');
+        Route::post('/modules/{module}/practice/finish', [PracticeController::class, 'finish'])->name('practice.finish');
         Route::post('/uploads', [UploadController::class, 'store'])->name('uploads.store');
     });
 

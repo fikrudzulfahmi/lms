@@ -62,6 +62,10 @@ export default function PracticeShow({ module, blocks = [], progress = {}, submi
     const [completedAt, setCompletedAt] = useState(() => progress.completed_at ?? null);
     const [busyBlocks, setBusyBlocks] = useState(() => new Set());
     const [error, setError] = useState(null);
+    const [page, setPage] = useState(0);
+    const [finishing, setFinishing] = useState(false);
+    const [finished, setFinished] = useState(false);
+    const [confirmFinish, setConfirmFinish] = useState(false);
 
     const completedSet = new Set(completedBlocks);
 
@@ -147,6 +151,27 @@ export default function PracticeShow({ module, blocks = [], progress = {}, submi
         };
     }
 
+    function isAnswered(block) {
+        if (block.block_type === 'section_heading') return true;
+        if (block.block_type === 'tugas_upload') return Boolean(submissions[block.id]);
+        if (answers[block.id]) return true;
+        return completedSet.has(block.id);
+    }
+
+    async function finishExam() {
+        setFinishing(true);
+        setError(null);
+        try {
+            await postJson(urls.finish, {});
+            setFinished(true);
+            setConfirmFinish(false);
+        } catch (caught) {
+            setError(caught.message);
+        } finally {
+            setFinishing(false);
+        }
+    }
+
     function submitAssignmentFor(block) {
         return async ({ files, note }) => {
             try {
@@ -173,6 +198,219 @@ export default function PracticeShow({ module, blocks = [], progress = {}, submi
                 return false;
             }
         };
+    }
+
+    if (module.exam_mode) {
+        const questionNumbers = {};
+        let counter = 0;
+        blocksState.forEach((block) => {
+            if (block.block_type !== 'section_heading') {
+                counter += 1;
+                questionNumbers[block.id] = counter;
+            }
+        });
+        const totalQuestions = counter;
+        const answeredCount = blocksState.filter(
+            (block) => block.block_type !== 'section_heading' && isAnswered(block),
+        ).length;
+        const active = blocksState[Math.min(page, Math.max(0, blocksState.length - 1))];
+        const activeDone = active ? completedSet.has(active.id) : false;
+
+        return (
+            <StudentLayout>
+                <Head title={`Asesmen · ${module.title}`} />
+
+                <div className="mb-4">
+                    <Link href={urls.home} className="text-xs text-zinc-500 hover:text-emerald-700">
+                        ← Kembali ke beranda
+                    </Link>
+                    <div className="mt-1.5 flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-700">
+                                Mode Asesmen
+                            </p>
+                            <h1 className="mt-0.5 font-display text-xl font-bold tracking-tight text-zinc-900 sm:text-2xl">
+                                {module.title}
+                            </h1>
+                            <p className="mt-1 text-sm text-zinc-500">
+                                {[module.subject, module.teacher].filter(Boolean).join(' · ')}
+                            </p>
+                        </div>
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-3 py-1.5 font-mono text-xs text-zinc-600">
+                            Terjawab {answeredCount} dari {totalQuestions}
+                        </span>
+                    </div>
+                    <p className="mt-2 text-xs text-zinc-500">
+                        Kamu boleh melompat ke soal lain dan kembali lagi ke soal yang belum bisa
+                        dijawab. Hasil tidak ditampilkan di sini — nilai diumumkan oleh guru.
+                    </p>
+                </div>
+
+                {error && (
+                    <div className="mb-3 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
+                        <span>{error}</span>
+                        <button type="button" onClick={() => setError(null)} className="text-xs underline">
+                            tutup
+                        </button>
+                    </div>
+                )}
+
+                {finished && (
+                    <div className="mb-4 rounded-[20px] border border-emerald-200 bg-emerald-50 px-5 py-4">
+                        <div className="font-display text-base font-bold text-emerald-900">
+                            ✅ Asesmen sudah dikumpulkan.
+                        </div>
+                        <p className="mt-0.5 text-sm text-emerald-700">
+                            Jawabanmu terkirim ke guru. Nilai akan muncul di halaman Nilai setelah
+                            diumumkan guru. Kamu masih bisa mengubah jawaban lalu mengumpulkan ulang
+                            selama halaman ini dibuka.
+                        </p>
+                    </div>
+                )}
+
+                <div className="mb-4 rounded-[20px] border border-zinc-200 bg-white p-3 shadow-card">
+                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                        Navigasi soal
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                        {blocksState.map((block, index) => {
+                            const isActive = index === page;
+                            const answered = isAnswered(block);
+                            const isHeading = block.block_type === 'section_heading';
+
+                            return (
+                                <button
+                                    key={block.id}
+                                    type="button"
+                                    onClick={() => setPage(index)}
+                                    title={
+                                        isHeading
+                                            ? block.content?.title || 'Judul bagian'
+                                            : `Soal ${questionNumbers[block.id]}${answered ? ' · sudah dijawab' : ''}`
+                                    }
+                                    className={`flex h-9 min-w-9 items-center justify-center rounded-lg border px-2 font-mono text-xs font-semibold transition-colors ${
+                                        isActive
+                                            ? 'border-emerald-600 bg-emerald-600 text-white'
+                                            : answered
+                                              ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                              : 'border-zinc-200 bg-white text-zinc-500 hover:border-emerald-300'
+                                    }`}
+                                >
+                                    {isHeading ? '§' : questionNumbers[block.id]}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <div className="mt-2 flex gap-4 text-[11px] text-zinc-400">
+                        <span>
+                            <span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm border border-emerald-300 bg-emerald-50" />
+                            Sudah dijawab
+                        </span>
+                        <span>
+                            <span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm border border-zinc-200 bg-white" />
+                            Belum dijawab
+                        </span>
+                        <span>
+                            <span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-emerald-600" />
+                            Soal aktif
+                        </span>
+                    </div>
+                </div>
+
+                {active ? (
+                    <div>
+                        <p className="mb-2 font-mono text-xs text-zinc-400">
+                            {active.block_type === 'section_heading'
+                                ? 'Bagian'
+                                : `Soal ${questionNumbers[active.id]} dari ${totalQuestions}`}
+                        </p>
+                        <DynamicBlockRenderer
+                            key={active.id}
+                            block={active}
+                            mode="mandiri_siswa"
+                            onSubmitAnswer={submitAnswerFor(active)}
+                            initialAnswer={answers[active.id]?.payload ?? null}
+                            initialCorrect={null}
+                            studentUploadUrl={urls.upload}
+                            submission={submissions[active.id] ?? null}
+                            onSubmitAssignment={submitAssignmentFor(active)}
+                        />
+                        {needsManualDone(active) && (
+                            <div className="mt-2 flex items-center gap-3 px-1">
+                                {activeDone ? (
+                                    <span className="text-xs font-medium text-emerald-700">Selesai ✓</span>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        disabled={busyBlocks.has(active.id)}
+                                        onClick={() => markDone(active)}
+                                        className="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                    >
+                                        {busyBlocks.has(active.id) ? 'Menyimpan...' : 'Tandai selesai'}
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    <div className="rounded-[20px] border border-dashed border-zinc-200 bg-white px-5 py-10 text-center text-sm text-zinc-400">
+                        Modul ini belum memiliki blok.
+                    </div>
+                )}
+
+                <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
+                    <button
+                        type="button"
+                        disabled={page <= 0}
+                        onClick={() => setPage((current) => Math.max(0, current - 1))}
+                        className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:border-emerald-300 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                        ← Sebelumnya
+                    </button>
+
+                    {page >= blocksState.length - 1 ? (
+                        confirmFinish ? (
+                            <span className="flex items-center gap-2">
+                                <span className="text-xs text-zinc-500">
+                                    Kumpulkan sekarang? Masih ada {totalQuestions - answeredCount} soal belum dijawab.
+                                </span>
+                                <button
+                                    type="button"
+                                    disabled={finishing}
+                                    onClick={finishExam}
+                                    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-40"
+                                >
+                                    {finishing ? 'Mengumpulkan...' : 'Ya, Kumpulkan'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setConfirmFinish(false)}
+                                    className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600"
+                                >
+                                    Batal
+                                </button>
+                            </span>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={() => setConfirmFinish(true)}
+                                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+                            >
+                                Kumpulkan Asesmen
+                            </button>
+                        )
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={() => setPage((current) => Math.min(blocksState.length - 1, current + 1))}
+                            className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:border-emerald-300 hover:text-emerald-700"
+                        >
+                            Berikutnya →
+                        </button>
+                    )}
+                </div>
+            </StudentLayout>
+        );
     }
 
     return (

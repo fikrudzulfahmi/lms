@@ -486,18 +486,31 @@ class GradeCalculationService
                 continue;
             }
 
+            // Modul mode asesmen yang hasilnya belum diumumkan guru:
+            // nilainya disembunyikan dari laporan siswa.
+            $maskedIds = $subjectModules
+                ->filter(fn (LearningModule $module) => $module->exam_mode && ! $module->results_released)
+                ->map(fn (LearningModule $module) => (string) $module->id)
+                ->all();
+
             $assessments = collect($row['modules'])
-                ->filter(fn (array $module) => $module['score'] !== null)
-                ->map(fn (array $module) => [
-                    'module_id' => $module['module_id'],
-                    'title' => $module['title'],
-                    'assessment_type' => $module['assessment_type'],
-                    'kktp' => $module['kktp'],
-                    'score' => $module['score'],
-                    'is_passed' => $module['is_passed'],
-                    'has_override' => $module['override_score'] !== null,
-                    'status' => $module['status'],
-                ])
+                ->filter(fn (array $module) => $module['score'] !== null
+                    || in_array((string) $module['module_id'], $maskedIds, true))
+                ->map(function (array $module) use ($maskedIds) {
+                    $masked = in_array((string) $module['module_id'], $maskedIds, true);
+
+                    return [
+                        'module_id' => $module['module_id'],
+                        'title' => $module['title'],
+                        'assessment_type' => $module['assessment_type'],
+                        'kktp' => $module['kktp'],
+                        'score' => $masked ? null : $module['score'],
+                        'is_passed' => $masked ? null : $module['is_passed'],
+                        'has_override' => $module['override_score'] !== null,
+                        'status' => $module['status'],
+                        'results_pending' => $masked,
+                    ];
+                })
                 ->values()
                 ->all();
 
