@@ -73,6 +73,9 @@ class PracticeController extends Controller
                     'block_type' => $block->block_type,
                     'points' => $block->points,
                     'locked' => $locked,
+                    // Judul tampil tetap dikirim walau blok terkunci (konten
+                    // lengkapnya tidak) agar siswa tahu apa yang menantinya.
+                    'display_title' => $this->displayTitle($block),
                     'content' => $locked ? [] : $content,
                 ];
             })
@@ -471,6 +474,36 @@ class PracticeController extends Controller
      * @param  array<int, string>  $completedIds
      * @return array<int, string>
      */
+    /**
+     * Judul pendek sebuah blok dari field labelnya sendiri (title /
+     * question / baris pertama teks) — aman ditampilkan walau blok
+     * terkunci karena bukan kunci jawaban maupun isi lengkap.
+     */
+    private function displayTitle(ModuleBlock $block): ?string
+    {
+        $content = is_array($block->content) ? $block->content : [];
+
+        $title = trim((string) ($content['title'] ?? ''));
+        if ($title !== '') {
+            return mb_strimwidth($title, 0, 90, '…');
+        }
+
+        $question = trim((string) ($content['question'] ?? ''));
+        if ($question !== '') {
+            return mb_strimwidth($question, 0, 90, '…');
+        }
+
+        if ($block->block_type === ModuleBlock::BLOCK_MATERI_RICHTEXT) {
+            $firstLine = trim((string) str($content['body'] ?? '')->before("\n"));
+            $firstLine = trim(preg_replace('/[*#\[\]()`>]/', '', $firstLine) ?? '');
+            if ($firstLine !== '') {
+                return mb_strimwidth($firstLine, 0, 90, '…');
+            }
+        }
+
+        return null;
+    }
+
     private function lockedBlockIds(LearningModule $module, array $completedIds): array
     {
         // Mode asesmen justru mengizinkan siswa melompat antar soal, jadi

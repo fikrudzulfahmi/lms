@@ -492,19 +492,36 @@ export default function PracticeShow({ module, blocks = [], progress = {}, submi
                     const savedAnswer = answers[block.id];
 
                     if (block.locked) {
+                        // Blok pengunci = blok pertama (bukan judul bagian)
+                        // yang belum selesai; sebutkan judulnya agar siswa
+                        // tahu persis apa yang harus diselesaikan dulu.
+                        const gate = blocksState.find(
+                            (candidate) =>
+                                candidate.block_type !== 'section_heading' &&
+                                !candidate.locked &&
+                                !completedSet.has(candidate.id),
+                        );
+                        const gateLabel =
+                            gate?.display_title ?? (gate ? (BLOCK_LABELS[gate.block_type] ?? 'Blok') : null);
+
                         return (
                             <div
                                 key={block.id}
-                                className="rounded-[20px] border border-dashed border-zinc-300 bg-zinc-50 px-5 py-8 text-center"
+                                className="rounded-[20px] border border-dashed border-zinc-300 bg-zinc-50 px-5 py-6 text-center"
                             >
                                 <div className="text-2xl" aria-hidden="true">
                                     🔒
                                 </div>
-                                <p className="mt-1.5 text-sm font-semibold text-zinc-600">
-                                    {BLOCK_LABELS[block.block_type] ?? 'Blok'} terkunci
+                                <p className="mt-1.5 text-sm font-semibold text-zinc-700">
+                                    {block.display_title ?? (BLOCK_LABELS[block.block_type] ?? 'Blok')}
                                 </p>
-                                <p className="mt-0.5 text-xs text-zinc-400">
-                                    Selesaikan blok sebelumnya untuk membuka blok ini.
+                                <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
+                                    {BLOCK_LABELS[block.block_type] ?? 'Blok'} · terkunci
+                                </p>
+                                <p className="mt-1 text-xs text-zinc-500">
+                                    {gateLabel
+                                        ? `Selesaikan dulu “${gateLabel}” untuk membuka blok ini.`
+                                        : 'Selesaikan blok sebelumnya untuk membuka blok ini.'}
                                 </p>
                             </div>
                         );

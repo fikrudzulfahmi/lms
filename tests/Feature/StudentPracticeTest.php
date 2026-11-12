@@ -260,8 +260,12 @@ class StudentPracticeTest extends TestCase
             ->component('Student/Practice/Show')
             ->where('module.sequential_lock', true)
             ->where('blocks.1.locked', false)
+            ->where('blocks.1.display_title', 'Sensor')
             ->where('blocks.2.locked', true)
             ->where('blocks.2.content', [])
+            // Konten terkunci tidak dikirim, tetapi judulnya tetap tampil
+            // agar siswa tahu blok apa yang menantinya.
+            ->where('blocks.2.display_title', 'Apa fungsi sensor MAP?')
         );
 
         // Aksi pada blok terkunci ditolak server, baik menjawab maupun

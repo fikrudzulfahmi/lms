@@ -2875,6 +2875,11 @@ export default function DynamicBlockRenderer({
                     <Heading mode={safeMode} kicker={BLOCK_LABELS[type]}>
                         {data.title}
                     </Heading>
+                    {(safeMode === 'mandiri_siswa' || safeMode === 'live_hp_siswa') && (
+                        <p className="mb-2 text-xs text-zinc-500">
+                            Klik judul bagian di bawah ini untuk membuka isi materinya.
+                        </p>
+                    )}
                     <div className="space-y-2">
                         {data.items.map((item, itemIndex) => (
                             <details
@@ -2887,14 +2892,24 @@ export default function DynamicBlockRenderer({
                                 }`}
                             >
                                 <summary
-                                    className={`cursor-pointer list-none font-medium marker:hidden ${
+                                    className={`flex cursor-pointer list-none items-center justify-between font-medium marker:hidden ${
                                         safeMode === 'live_proyektor' ? 'text-xl text-zinc-100' : 'text-sm text-zinc-800'
                                     }`}
                                 >
-                                    <span className="mr-2 font-mono text-xs text-emerald-600">
-                                        {String(itemIndex + 1).padStart(2, '0')}
+                                    <span>
+                                        <span className="mr-2 font-mono text-xs text-emerald-600">
+                                            {String(itemIndex + 1).padStart(2, '0')}
+                                        </span>
+                                        {item.label}
                                     </span>
-                                    {item.label}
+                                    {safeMode !== 'editor_guru' && (
+                                        <span
+                                            aria-hidden="true"
+                                            className="ml-3 shrink-0 text-[10px] text-zinc-400 transition-transform duration-200 group-open:rotate-180"
+                                        >
+                                            ▼
+                                        </span>
+                                    )}
                                 </summary>
                                 <p
                                     className={`mt-2 whitespace-pre-line pl-7 ${
