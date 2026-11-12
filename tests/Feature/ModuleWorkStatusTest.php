@@ -179,6 +179,52 @@ class ModuleWorkStatusTest extends TestCase
         $assertState($this->studentC, 'graded');
     }
 
+    public function test_home_card_links_to_where_the_student_can_start(): void
+    {
+        // Modul latihan (allow_practice): kartu menuju halaman Belajar Mandiri.
+        $this->actingAs($this->studentB)->get(route('student.home'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Student/Home')
+                ->where('modules', function ($modules) {
+                    $card = collect($modules)->firstWhere('id', $this->module->id);
+                    $this->assertNotNull($card);
+                    $this->assertStringEndsWith("/student/modules/{$this->module->id}/practice", $card['href']);
+                    $this->assertSame('Mulai Belajar', $card['action_label']);
+
+                    return true;
+                }));
+
+        // Modul tanpa latihan tetapi kelas live sedang berjalan: kartu
+        // menuju ruang live dengan PIN sesi itu.
+        $liveModule = LearningModule::factory()->create([
+            'teaching_assignment_id' => $this->module->teaching_assignment_id,
+            'status' => LearningModule::STATUS_PUBLISHED,
+            'allow_practice' => false,
+            'title' => 'Modul Live Saja',
+        ]);
+        ModuleBlock::factory()->create([
+            'module_id' => $liveModule->id,
+            'block_type' => ModuleBlock::BLOCK_MATERI_TEKS,
+            'order_index' => 1,
+            'content' => ['body' => 'Materi pembuka.'],
+        ]);
+        $session = app(\App\Services\LiveSessionService::class)->start($liveModule);
+
+        $this->actingAs($this->studentB)->get(route('student.home'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Student/Home')
+                ->where('modules', function ($modules) use ($liveModule, $session) {
+                    $card = collect($modules)->firstWhere('id', $liveModule->id);
+                    $this->assertNotNull($card);
+                    $this->assertStringEndsWith("/live/{$session->pin_code}", $card['href']);
+                    $this->assertSame('Masuk Kelas Live', $card['action_label']);
+
+                    return true;
+                }));
+    }
+
     public function test_home_card_shows_in_progress_for_partial_practice(): void
     {
         ModuleProgress::query()->create([
